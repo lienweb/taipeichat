@@ -31,5 +31,5 @@ dist-ssr
 # Contract build artifacts
 contract/Move.lock
 contract/publish_output.txt
-=======
+
 *.code-workspace
