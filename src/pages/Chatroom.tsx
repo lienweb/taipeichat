@@ -43,15 +43,10 @@ interface OnlineUser {
   avatarColor: string;
 }
 
-// 預設的頭像顏色選項
-
-const Index = () => {
+const Chatroom = () => {
   const navigate = useNavigate();
   const account = useCurrentAccount();
   const { disconnect } = useWallet();
-  const [registrationStep, setRegistrationStep] = useState<
-    "wallet" | "username" | "confirm" | "complete"
-  >("complete");
   const [username, setUsername] = useState("");
   const [usernameError, setUsernameError] = useState("");
   const [avatarImage, setAvatarImage] = useState<string>("");
@@ -88,13 +83,6 @@ const Index = () => {
     }
   }, [messages]);
 
-  useEffect(() => {
-    if (!account && registrationStep === "wallet") {
-      setRegistrationStep("wallet");
-    }
-    setRegistrationStep("username");
-  }, [account]);
-
   const validateUsername = (value: string): boolean => {
     if (value.trim().length < 3) {
       setUsernameError("Username must be at least 3 characters");
@@ -115,12 +103,6 @@ const Index = () => {
       validateUsername(value);
     } else {
       setUsernameError("");
-    }
-  };
-
-  const handleNextStep = () => {
-    if (validateUsername(username)) {
-      setRegistrationStep("confirm");
     }
   };
 
@@ -148,24 +130,6 @@ const Index = () => {
       }, 3000);
     };
     reader.readAsDataURL(file);
-  };
-
-  const handleCompleteRegistration = () => {
-    localStorage.setItem("username", username);
-    if (avatarImage) {
-      localStorage.setItem("avatarImage", avatarImage);
-    }
-
-    const welcomeMsg: Message = {
-      id: Date.now().toString(),
-      sender: "System",
-      content: `Welcome ${username} to the chatroom!`,
-      timestamp: new Date(),
-      isOwn: false,
-      isRead: false,
-    };
-    setMessages([welcomeMsg]);
-    setRegistrationStep("complete");
   };
 
   const handleSendMessage = () => {
@@ -233,233 +197,6 @@ const Index = () => {
 
   if (isLoading) {
     return <PageLoader />;
-  }
-
-  // FIXME: routing /profile
-  // step 1: wallet connect
-  if (registrationStep === "wallet") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="w-full max-w-md mx-auto animate-fade-slide-in">
-          <RegistrationStepper currentStep={1} />
-
-          <Card className="w-full p-8 bg-card border shadow-sm">
-            <div className="space-y-6">
-              <div className="text-center space-y-3">
-                <div className="w-20 h-20 mx-auto bg-primary rounded-2xl flex items-center justify-center">
-                  <Wallet className="w-10 h-10 text-primary-foreground" />
-                </div>
-                <h1 className="text-3xl font-bold text-primary">
-                  Web3 Chatroom
-                </h1>
-                <p className="text-muted-foreground">
-                  Connect your wallet to get started
-                </p>
-              </div>
-
-              {/* <Button
-                onClick={connect}
-                disabled={isConnecting}
-                className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
-              >
-                <Wallet className="mr-2 h-5 w-5" />
-                {isConnecting ? "Connecting..." : "Connect Wallet"}
-              </Button> */}
-              <ConnectButton />
-
-              <div className="text-xs text-center text-muted-foreground">
-                <p>Click button to simulate connection</p>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  // step 2：setup profile
-  if (registrationStep === "username") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="w-full max-w-md mx-auto animate-fade-slide-in">
-          <RegistrationStepper currentStep={2} />
-
-          <Card className="w-full p-8 bg-card border shadow-sm">
-            <div className="space-y-6">
-              <div className="text-center space-y-3">
-                <div className="w-20 h-20 mx-auto bg-primary rounded-full flex items-center justify-center">
-                  <User className="w-10 h-10 text-primary-foreground" />
-                </div>
-                <h1 className="text-3xl font-bold text-foreground">
-                  Set Username
-                </h1>
-                <p className="text-muted-foreground">
-                  Please enter your username
-                </p>
-                {/* <div className="text-xs text-primary bg-primary/10 rounded-lg p-2 font-mono flex items-center justify-center gap-2">
-                  <CheckCircle className="w-4 h-4" />
-                  {!!account.address && account.address}
-                </div> */}
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Input
-                    value={username}
-                    onChange={handleUsernameChange}
-                    placeholder="Enter username"
-                    className={`bg-background border-input focus:border-primary h-12 ${
-                      usernameError
-                        ? "border-destructive focus:border-destructive"
-                        : ""
-                    }`}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" &&
-                      username.trim().length >= 3 &&
-                      !isUploadingAvatar &&
-                      handleNextStep()
-                    }
-                  />
-                  {usernameError && (
-                    <p className="text-xs text-destructive">{usernameError}</p>
-                  )}
-                  {!usernameError &&
-                    username.trim().length > 0 &&
-                    username.trim().length < 3 && (
-                      <p className="text-xs text-muted-foreground">
-                        {3 - username.trim().length} more character
-                        {3 - username.trim().length > 1 ? "s" : ""} needed
-                      </p>
-                    )}
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">
-                    Avatar
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <Avatar className="h-16 w-16">
-                      {avatarImage ? (
-                        <img
-                          src={avatarImage}
-                          alt="Avatar preview"
-                          className="object-cover"
-                        />
-                      ) : (
-                        <AvatarFallback className="bg-muted text-foreground">
-                          {username ? username.charAt(0).toUpperCase() : "?"}
-                        </AvatarFallback>
-                      )}
-                    </Avatar>
-                    <div className="flex-1">
-                      <input
-                        ref={avatarInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleAvatarUpload}
-                        className="hidden"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => avatarInputRef.current?.click()}
-                        disabled={isUploadingAvatar}
-                        className="w-full"
-                      >
-                        {isUploadingAvatar ? "Uploading..." : "Upload Avatar"}
-                      </Button>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Max 2MB, image files only
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <Button
-                  onClick={handleNextStep}
-                  disabled={
-                    username.trim().length < 3 ||
-                    isUploadingAvatar ||
-                    !avatarImage
-                  }
-                  className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
-                >
-                  Next
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  // step 3: register
-  if (registrationStep === "confirm") {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="w-full max-w-md mx-auto animate-fade-slide-in">
-          <RegistrationStepper currentStep={3} />
-
-          <Card className="w-full p-8 bg-card border shadow-sm">
-            <div className="space-y-6">
-              <div className="text-center space-y-3">
-                <div className="w-20 h-20 mx-auto bg-primary rounded-2xl flex items-center justify-center">
-                  <CheckCircle className="w-10 h-10 text-primary-foreground" />
-                </div>
-                <h1 className="text-3xl font-bold text-primary">
-                  Confirm Registration
-                </h1>
-                <p className="text-muted-foreground">
-                  Please confirm your information
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="bg-muted rounded-lg p-4 space-y-3">
-                  {avatarImage && (
-                    <div className="flex items-center justify-center mb-3">
-                      <Avatar className="h-20 w-20">
-                        <img
-                          src={avatarImage}
-                          alt="Avatar"
-                          className="object-cover"
-                        />
-                      </Avatar>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      Username
-                    </span>
-                    <span className="text-sm font-semibold text-foreground">
-                      {username}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      Wallet Address
-                    </span>
-                    {/* <span className="text-xs text-primary font-mono">
-                      {account.address?.slice(0, 6)}...
-                      {account.address?.slice(-4)}
-                    </span> */}
-                  </div>
-                </div>
-
-                <Button
-                  onClick={handleCompleteRegistration}
-                  className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
-                >
-                  Complete Registration
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -754,4 +491,4 @@ const Index = () => {
   );
 };
 
-export default Index;
+export default Chatroom;

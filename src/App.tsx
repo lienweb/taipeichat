@@ -1,17 +1,18 @@
-import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
-import Profile from "./pages/Profile";
-import NotFound from "./pages/NotFound";
 import {
   createNetworkConfig,
   SuiClientProvider,
   WalletProvider,
 } from "@mysten/dapp-kit";
 import { getFullnodeUrl } from "@mysten/sui/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import Chatroom from "./pages/Chatroom";
+import Index from "./pages/Index";
+import NotFound from "./pages/NotFound";
+import Profile from "./pages/Profile";
 
 // Config options for the networks you want to connect to
 const { networkConfig } = createNetworkConfig({
@@ -33,6 +34,7 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/profile" element={<Profile />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="/chatroom" element={<Chatroom />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
