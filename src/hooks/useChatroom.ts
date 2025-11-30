@@ -208,6 +208,7 @@ export const useChatroom = (chatroomId: string | null) => {
                 content: messageData.content,
                 timestamp: new Date(Number(messageData.timestamp)),
                 isOwn: false,
+                profileImage: messageData.profile_image || messageData.profileImage || undefined,
               });
             }
           }

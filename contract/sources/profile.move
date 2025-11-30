@@ -11,7 +11,7 @@ module taipeichat::profile {
 
     // ===== Error Codes =====
 
-    // const EProfileAlreadyExists: u64 = 0;
+    const EProfileAlreadyExists: u64 = 0;
     const ENotProfileOwner: u64 = 1;
     const EImageRequired: u64 = 2;
     const EBioRequired: u64 = 3;
@@ -98,7 +98,7 @@ module taipeichat::profile {
         ctx: &mut TxContext
     ) {
         let sender = ctx.sender();
-        // assert!(!registry.profiles.contains(sender), EProfileAlreadyExists);
+        assert!(!registry.profiles.contains(sender), EProfileAlreadyExists);
         assert!(!string::is_empty(&image_blob_id), EImageRequired);
 
         let profile = Profile {

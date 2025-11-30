@@ -56,7 +56,7 @@ const Index = () => {
   const account = useCurrentAccount();
   const { currentWallet, connectionStatus, isConnected } = useCurrentWallet();
   const { mutate: disconnect } = useDisconnectWallet();
-  const { mintProfile, isLoading: isMinting } = useProfile();
+  const { mintProfile, isLoading: isMinting, getUserProfile } = useProfile();
   const [registrationStep, setRegistrationStep] = useState<
     "wallet" | "username" | "confirm" | "complete"
   >("wallet");
@@ -207,8 +207,18 @@ const Index = () => {
         };
         setMessages([welcomeMsg]);
 
-        // 導航到聊天室
-        navigate("/chatroom");
+        navigate("/chatroom", { 
+          state: { 
+            profile: {
+              username,
+              bio: "TaipeiChat user",
+              imageBlobId: avatar.blobId,
+              owner: account.address,
+              createdAt: Date.now().toString(),
+            },
+            profileId: result.profileId,
+          } 
+        });
         setRegistrationStep("complete");
       } else {
         console.error("❌ Failed to mint profile:", result.error);
@@ -282,19 +292,37 @@ const Index = () => {
       }
     }
   };
-  // TODO: login userflow
-  const handleLoginBtn = () => {};
+  const handleLoginBtn = async () => {
+    if (!account?.address) {
+      alert("Please connect your wallet first");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const profile = await getUserProfile(account.address);
+      
+      if (profile) {
+        navigate("/chatroom", { state: { profile } });
+      } else {
+        alert("No profile found. Please register first.");
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      alert("Failed to check profile. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (isLoading) {
     return <PageLoader />;
   }
 
-  // FIXME: routing /profile
   if (registrationStep === "wallet") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-md mx-auto animate-fade-slide-in ">
-          <Button onClick={handleLoginBtn}>Login</Button>
           <RegistrationStepper currentStep={1} />
 
           <Card className="w-full p-8 bg-card border shadow-sm">
@@ -309,12 +337,22 @@ const Index = () => {
                 </p>
               </div>
               <ConnectButton />
-              <Button
-                className="w-full h-12 border-2 border-primary text-white"
-                onClick={() => setRegistrationStep("username")}
-              >
-                click to continue
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 h-12"
+                  onClick={handleLoginBtn}
+                  disabled={!account?.address}
+                >
+                  Login
+                </Button>
+                <Button
+                  className="flex-1 h-12 border-2 border-primary text-white"
+                  onClick={() => setRegistrationStep("username")}
+                >
+                  Register
+                </Button>
+              </div>
             </div>
           </Card>
         </div>
@@ -326,7 +364,6 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-md mx-auto animate-fade-slide-in">
-          <Button onClick={handleLoginBtn}>Login</Button>
           <RegistrationStepper currentStep={2} />
 
           <Card className="w-full p-8 bg-card border shadow-sm">
@@ -443,7 +480,6 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-md mx-auto animate-fade-slide-in">
-          <Button onClick={handleLoginBtn}>Login</Button>
           <RegistrationStepper currentStep={3} />
 
           <Card className="w-full p-8 bg-card border shadow-sm">

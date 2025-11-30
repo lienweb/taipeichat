@@ -25,8 +25,13 @@ import {
   Wallet,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { ProfileData } from "@/type";
+import { AGGREGATOR_TESTNET, CONTRACT_CONFIG } from "@/constant";
+import { useChatroom } from "@/hooks/useChatroom";
+import { useSignAndExecuteTransaction } from "@mysten/dapp-kit";
+import { createJoinChatroomTransaction, findDefaultChatroomId } from "@/helpers/chatroom";
 
 interface Message {
   id: string;
@@ -41,25 +46,183 @@ interface OnlineUser {
   name: string;
   address: string;
   avatarColor: string;
+  imageUrl?: string;
 }
 
 const Chatroom = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const account = useCurrentAccount();
   const { disconnect } = useWallet();
-  const [username, setUsername] = useState("");
+  const suiClient = new SuiClient({ url: getFullnodeUrl("testnet") });
+  const { mutateAsync: signAndExecuteTransaction } = useSignAndExecuteTransaction();
+  
+  const profile = location.state?.profile as ProfileData | undefined;
+  const profileId = location.state?.profileId as string | undefined;
+  
+  console.log("Chatroom initialized with:", {
+    profile,
+    profileId,
+    locationState: location.state
+  });
+  
+  const [username, setUsername] = useState(profile?.username || "");
   const [usernameError, setUsernameError] = useState("");
-  const [avatarImage, setAvatarImage] = useState<string>("");
+  const [avatarImage, setAvatarImage] = useState<string>(
+    profile?.imageBlobId 
+      ? `${AGGREGATOR_TESTNET}/v1/blobs/${profile.imageBlobId}`
+      : ""
+  );
+  const [chatroomId, setChatroomId] = useState<string | null>(CONTRACT_CONFIG.CHATROOM_ID);
+  const [hasJoinedChatroom, setHasJoinedChatroom] = useState(false);
+  
+  const { 
+    messages: chatroomMessages, 
+    participants: chatroomParticipants,
+    sendMessage: sendChatroomMessage,
+    refresh,
+    isLoading: isChatroomLoading,
+  } = useChatroom(chatroomId);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [visitorsCount] = useState(Math.floor(Math.random() * 50) + 100); // Simulated visitors count (100-149)
+  const [visitorsCount] = useState(Math.floor(Math.random() * 50) + 100);
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!chatroomId) {
+      const initChatroom = async () => {
+        try {
+          const defaultChatroomId = await findDefaultChatroomId(suiClient);
+          if (defaultChatroomId) {
+            setChatroomId(defaultChatroomId);
+            console.log("Found default chatroom:", defaultChatroomId);
+          } else {
+            console.error("No default chatroom found.");
+          }
+        } catch (error) {
+          console.error("Error finding chatroom:", error);
+        }
+      };
+      initChatroom();
+    }
+  }, []);
+
+  useEffect(() => {
+    const joinChatroom = async () => {
+      if (!chatroomId || !profileId || !account?.address || hasJoinedChatroom) {
+        return;
+      }
+
+      try {
+        const tx = createJoinChatroomTransaction(chatroomId, profileId);
+        const result = await signAndExecuteTransaction({ transaction: tx });
+        
+        console.log("✅ Joined chatroom successfully:", result);
+        setHasJoinedChatroom(true);
+        
+        await fetchUsers();
+        await refresh();
+      } catch (error) {
+        console.error("❌ Failed to join chatroom:", error);
+        setHasJoinedChatroom(true);
+        await fetchUsers();
+        await refresh();
+      }
+    };
+
+    joinChatroom();
+  }, [chatroomId, profileId, account, hasJoinedChatroom]);
+
+  const fetchUsers = async () => {
+    if (!chatroomId) return;
+
+    console.log("Fetching chatroom participants...");
+    try {
+      const response = await suiClient.getObject({
+        id: chatroomId,
+        options: { showContent: true },
+      });
+
+      console.log("ChatRoom response:", response);
+
+      if (response.data?.content?.dataType === "moveObject" && response.data.content.fields) {
+        const fields = response.data.content.fields as any;
+        console.log("ChatRoom fields:", fields);
+        
+        const participants = fields.participants || [];
+        console.log("Participants:", participants);
+        
+        if (participants.length === 0) {
+          console.log("No participants in chatroom");
+          setOnlineUsers([]);
+          return;
+        }
+        
+        const participantProfiles = fields.participant_profiles?.fields || {};
+        
+        const users = await Promise.all(
+          participants.map(async (address: string) => {
+            try {
+              const profileId = participantProfiles[address];
+              
+              if (!profileId) {
+                console.warn(`No Profile ID for address ${address}`);
+                return {
+                  name: `User_${address.slice(0, 6)}`,
+                  address: address,
+                  avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
+                };
+              }
+              
+              const profileResponse = await suiClient.getObject({
+                id: profileId,
+                options: { showContent: true },
+              });
+              
+              if (profileResponse.data?.content?.dataType === "moveObject") {
+                const profileFields = profileResponse.data.content.fields as any;
+                const imageBlobId = profileFields?.image_blob_id;
+                
+                return {
+                  name: profileFields?.username || `User_${address.slice(0, 6)}`,
+                  address: address,
+                  avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
+                  imageUrl: imageBlobId ? `${AGGREGATOR_TESTNET}/v1/blobs/${imageBlobId}` : undefined,
+                };
+              }
+              
+              return {
+                name: `User_${address.slice(0, 6)}`,
+                address: address,
+                avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
+              };
+            } catch (error) {
+              console.error(`Error fetching profile for ${address}:`, error);
+              return {
+                name: `User_${address.slice(0, 6)}`,
+                address: address,
+                avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
+              };
+            }
+          })
+        );
+        
+        console.log("Participants list updated:", users);
+        setOnlineUsers(users);
+      } else {
+        console.error("ChatRoom does not exist or has invalid data.");
+        setOnlineUsers([]);
+      }
+    } catch (error) {
+      console.error("Error fetching participants:", error);
+      setOnlineUsers([]);
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -73,104 +236,7 @@ const Chatroom = () => {
     if (scrollRef.current) {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
-
-  useEffect(() => {
-    const fetchUsers = async () => {
-      console.log("開始獲取聊天室參與者列表...");
-      try {
-        const suiClient = new SuiClient({ url: getFullnodeUrl("testnet") });
-        const packageId = "0x07f3d69c697449c9e8d06e9ef66de815fb50ef2468d860ba6202d193e80dd077";
-        
-        // ChatRoom Object ID
-        const chatRoomId = "0xe8e5611d8b66b90ec577fa6c91a54d2fbbd65e38752820a036b1446ff54f0a48";
-        
-        console.log("正在查詢 ChatRoom...", chatRoomId);
-        const response = await suiClient.getObject({
-          id: chatRoomId,
-          options: { showContent: true },
-        });
-
-        console.log("ChatRoom 回應:", response);
-
-        if (response.data?.content?.dataType === "moveObject" && response.data.content.fields) {
-          const fields = response.data.content.fields as any;
-          console.log("ChatRoom 欄位:", fields);
-          
-          // 取得參與者地址列表
-          const participants = fields.participants || [];
-          console.log("參與者地址:", participants);
-          
-          if (participants.length === 0) {
-            console.log("聊天室目前沒有參與者");
-            setOnlineUsers([]);
-            return;
-          }
-          
-          // 獲取每個參與者的 Profile 資訊
-          const participantProfiles = fields.participant_profiles?.fields || {};
-          
-          const users = await Promise.all(
-            participants.map(async (address: string) => {
-              try {
-                // 從 participant_profiles Table 取得 Profile ID
-                const profileId = participantProfiles[address];
-                
-                if (!profileId) {
-                  console.warn(`未找到地址 ${address} 的 Profile ID`);
-                  return {
-                    name: `User_${address.slice(0, 6)}`,
-                    address: address,
-                    avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
-                  };
-                }
-                
-                // 用 Profile ID 讀取 Profile 物件
-                const profileResponse = await suiClient.getObject({
-                  id: profileId,
-                  options: { showContent: true },
-                });
-                
-                if (profileResponse.data?.content?.dataType === "moveObject") {
-                  const profileFields = profileResponse.data.content.fields as any;
-                  
-                  return {
-                    name: profileFields?.username || `User_${address.slice(0, 6)}`,
-                    address: address,
-                    avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
-                  };
-                }
-                
-                return {
-                  name: `User_${address.slice(0, 6)}`,
-                  address: address,
-                  avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
-                };
-              } catch (error) {
-                console.error(`獲取地址 ${address} 的 Profile 失敗:`, error);
-                return {
-                  name: `User_${address.slice(0, 6)}`,
-                  address: address,
-                  avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
-                };
-              }
-            })
-          );
-          
-          console.log("參與者列表已更新:", users);
-          setOnlineUsers(users);
-        } else {
-          console.error("ChatRoom does not exist or has invalid data.");
-          setOnlineUsers([]);
-        }
-      } catch (error) {
-        console.error("獲取參與者失敗:", error);
-        setOnlineUsers([]);
-      }
-    };
-
-    fetchUsers();
-  }, []);
+  }, [chatroomMessages]);
 
   const validateUsername = (value: string): boolean => {
     if (value.trim().length < 3) {
@@ -221,46 +287,46 @@ const Chatroom = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleSendMessage = () => {
-    if (!inputMessage.trim() || !account.address) return;
+  const handleSendMessage = async () => {
+    console.log("handleSendMessage called");
+    console.log("inputMessage:", inputMessage);
+    console.log("account:", account?.address);
+    console.log("profileId:", profileId);
+    
+    if (!inputMessage.trim() || !account?.address || !profileId) {
+      console.log("Validation failed:", {
+        hasInput: !!inputMessage.trim(),
+        hasAccount: !!account?.address,
+        hasProfileId: !!profileId
+      });
+      return;
+    }
 
     setIsTyping(false);
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
 
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      sender: account.address,
-      content: inputMessage,
-      timestamp: new Date(),
-      isOwn: true,
-      isRead: false,
-    };
-
-    setMessages((prev) => [...prev, newMessage]);
+    const content = inputMessage;
     setInputMessage("");
 
-    // 模擬訊息發送後立即標記為已讀（延遲 1.5 秒）
-    setTimeout(() => {
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === newMessage.id ? { ...msg, isRead: true } : msg,
-        ),
-      );
-    }, 1500);
-
-    setTimeout(() => {
-      const echoMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        sender: "Echo Bot",
-        content: `Received: ${inputMessage}`,
-        timestamp: new Date(),
-        isOwn: false,
-        isRead: false,
-      };
-      setMessages((prev) => [...prev, echoMessage]);
-    }, 1000);
+    try {
+      console.log("Sending message:", content);
+      const result = await sendChatroomMessage(profileId, content, account.address);
+      
+      if (result.success) {
+        console.log("✅ Message sent successfully");
+        await refresh();
+      } else {
+        console.error("❌ Failed to send message:", result.error);
+        alert(`Failed to send message: ${result.error}`);
+        setInputMessage(content);
+      }
+    } catch (error) {
+      console.error("❌ Send message error:", error);
+      alert("Failed to send message. Please try again.");
+      setInputMessage(content);
+    }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -312,19 +378,27 @@ const Chatroom = () => {
                 className="relative h-10 w-10 rounded-full"
               >
                 <Avatar className="h-10 w-10">
-                  <AvatarFallback
-                    style={{
-                      backgroundColor:
-                        AVATAR_COLORS[
-                          parseInt(
-                            localStorage.getItem("selectedAvatar") || "1",
-                          ) - 1
-                        ],
-                    }}
-                    className="text-white font-semibold"
-                  >
-                    {username.charAt(0).toUpperCase()}
-                  </AvatarFallback>
+                  {avatarImage ? (
+                    <img
+                      src={avatarImage}
+                      alt={username}
+                      className="object-cover"
+                    />
+                  ) : (
+                    <AvatarFallback
+                      style={{
+                        backgroundColor:
+                          AVATAR_COLORS[
+                            parseInt(
+                              localStorage.getItem("selectedAvatar") || "1",
+                            ) - 1
+                          ],
+                      }}
+                      className="text-white font-semibold"
+                    >
+                      {username.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  )}
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
@@ -337,7 +411,7 @@ const Chatroom = () => {
                 Edit Profile
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={disconnect}
+                onClick={()=>{disconnect(); navigate("/")}}
                 className="cursor-pointer text-destructive focus:text-destructive"
               >
                 <LogOut className="mr-2 h-4 w-4" />
@@ -365,19 +439,27 @@ const Chatroom = () => {
                 <div className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors">
                   <div className="relative">
                     <Avatar className="h-10 w-10">
-                      <AvatarFallback
-                        style={{
-                          backgroundColor:
-                            AVATAR_COLORS[
-                              parseInt(
-                                localStorage.getItem("selectedAvatar") || "1",
-                              ) - 1
-                            ],
-                        }}
-                        className="text-white font-semibold"
-                      >
-                        {username.charAt(0).toUpperCase()}
-                      </AvatarFallback>
+                      {avatarImage ? (
+                        <img
+                          src={avatarImage}
+                          alt={username}
+                          className="object-cover"
+                        />
+                      ) : (
+                        <AvatarFallback
+                          style={{
+                            backgroundColor:
+                              AVATAR_COLORS[
+                                parseInt(
+                                  localStorage.getItem("selectedAvatar") || "1",
+                                ) - 1
+                              ],
+                          }}
+                          className="text-white font-semibold"
+                        >
+                          {username.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      )}
                     </Avatar>
                     <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-card" />
                   </div>
@@ -385,10 +467,6 @@ const Chatroom = () => {
                     <div className="text-sm font-medium text-foreground truncate">
                       {username}
                     </div>
-                    {/* <div className="text-xs text-muted-foreground font-mono">
-                      {account.address?.slice(0, 6)}...
-                      {account.address?.slice(-4)}
-                    </div> */}
                   </div>
                 </div>
 
@@ -400,6 +478,17 @@ const Chatroom = () => {
                   >
                     <div className="relative">
                       <Avatar className="h-10 w-10">
+                        {user.imageUrl ? (
+                          <img
+                            src={user.imageUrl}
+                            alt={user.name}
+                            className="object-cover"
+                            onError={(e) => {
+                              // 如果圖片載入失敗，隱藏 img 標籤，讓 fallback 顯示
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        ) : null}
                         <AvatarFallback
                           style={{ backgroundColor: user.avatarColor }}
                           className="text-white font-semibold"
@@ -426,26 +515,30 @@ const Chatroom = () => {
           <Card className="lg:col-span-3 bg-card border flex flex-col h-full">
             <ScrollArea className="flex-1 p-6">
               <div className="space-y-4">
-                {messages.map((msg) => (
+                {chatroomMessages.map((msg) => (
                   <div
                     key={msg.id}
                     className={`flex ${msg.isOwn ? "justify-end" : "justify-start"} gap-3 animate-slide-up`}
                   >
-                    {/* 左側頭像 - 非自己的訊息 */}
                     {!msg.isOwn && (
                       <Avatar className="h-10 w-10 flex-shrink-0">
+                        {msg.profileImage ? (
+                          <img
+                            src={`${AGGREGATOR_TESTNET}/v1/blobs/${msg.profileImage}`}
+                            alt={msg.username}
+                            className="object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        ) : null}
                         <AvatarFallback
                           style={{
-                            backgroundColor:
-                              msg.sender === "System"
-                                ? "hsl(200, 100%, 40%)"
-                                : AVATAR_COLORS[0],
+                            backgroundColor: AVATAR_COLORS[0],
                           }}
                           className="text-white font-semibold text-sm"
                         >
-                          {msg.sender === "System"
-                            ? "S"
-                            : msg.sender.charAt(0).toUpperCase()}
+                          {msg.username?.charAt(0).toUpperCase() || "?"}
                         </AvatarFallback>
                       </Avatar>
                     )}
@@ -459,11 +552,7 @@ const Chatroom = () => {
                     >
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs opacity-70">
-                          {msg.isOwn
-                            ? "You"
-                            : msg.sender === "System"
-                              ? "System"
-                              : `${msg.sender.slice(0, 6)}...${msg.sender.slice(-4)}`}
+                          {msg.isOwn ? "You" : msg.username}
                         </span>
                         <span className="text-xs opacity-50">
                           {msg.timestamp.toLocaleTimeString("en-US", {
@@ -473,49 +562,31 @@ const Chatroom = () => {
                         </span>
                       </div>
                       <p className="text-sm break-words">{msg.content}</p>
-
-                      {/* 已讀/未讀狀態 - 只顯示在自己的訊息 */}
-                      {msg.isOwn && (
-                        <div className="flex justify-end mt-1">
-                          {msg.isRead ? (
-                            // 雙勾 - 已讀
-                            <div className="flex items-center gap-0.5">
-                              <Check
-                                className="h-3 w-3 opacity-70"
-                                strokeWidth={3}
-                              />
-                              <Check
-                                className="h-3 w-3 opacity-70 -ml-2"
-                                strokeWidth={3}
-                              />
-                            </div>
-                          ) : (
-                            // 單勾 - 已發送但未讀
-                            <Check
-                              className="h-3 w-3 opacity-50"
-                              strokeWidth={2.5}
-                            />
-                          )}
-                        </div>
-                      )}
                     </div>
 
-                    {/* 右側頭像 - 自己的訊息 */}
                     {msg.isOwn && (
                       <Avatar className="h-10 w-10 flex-shrink-0">
-                        <AvatarFallback
-                          style={{
-                            backgroundColor:
-                              AVATAR_COLORS[
-                                parseInt(
-                                  localStorage.getItem("selectedAvatar") || "1",
-                                ) - 1
-                              ],
-                          }}
-                          className="text-white font-semibold text-sm"
-                        >
-                          {username.charAt(0).toUpperCase()}
-                        </AvatarFallback>
+                        {avatarImage ? (
+                          <img
+                            src={avatarImage}
+                            alt={username}
+                            className="object-cover"
+                          />
+                        ) : (
+                          <AvatarFallback
+                            style={{
+                              backgroundColor:
+                                AVATAR_COLORS[
+                                  parseInt(
+                                    localStorage.getItem("selectedAvatar") || "1",
+                                  ) - 1
+                                ],
+                            }}
+                            className="text-white font-semibold text-sm"
+                          >
+                            {username.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        )}
                       </Avatar>
                     )}
                   </div>
