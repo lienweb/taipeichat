@@ -1,5 +1,4 @@
 import { PageLoader } from "@/components/PageLoader";
-import { RegistrationStepper } from "@/components/RegistrationStepper";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -27,6 +26,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 
 interface Message {
   id: string;
@@ -53,15 +53,7 @@ const Chatroom = () => {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
-  const [onlineUsers] = useState<OnlineUser[]>([
-    { name: "Alice", address: "0x742d...0bEb", avatarColor: AVATAR_COLORS[1] },
-    { name: "Bob", address: "0x8ba1...BA72", avatarColor: AVATAR_COLORS[2] },
-    {
-      name: "Charlie",
-      address: "0xE118...882d",
-      avatarColor: AVATAR_COLORS[3],
-    },
-  ]);
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [visitorsCount] = useState(Math.floor(Math.random() * 50) + 100); // Simulated visitors count (100-149)
@@ -82,6 +74,103 @@ const Chatroom = () => {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      console.log("開始獲取聊天室參與者列表...");
+      try {
+        const suiClient = new SuiClient({ url: getFullnodeUrl("testnet") });
+        const packageId = "0x07f3d69c697449c9e8d06e9ef66de815fb50ef2468d860ba6202d193e80dd077";
+        
+        // ChatRoom Object ID
+        const chatRoomId = "0xe8e5611d8b66b90ec577fa6c91a54d2fbbd65e38752820a036b1446ff54f0a48";
+        
+        console.log("正在查詢 ChatRoom...", chatRoomId);
+        const response = await suiClient.getObject({
+          id: chatRoomId,
+          options: { showContent: true },
+        });
+
+        console.log("ChatRoom 回應:", response);
+
+        if (response.data?.content?.dataType === "moveObject" && response.data.content.fields) {
+          const fields = response.data.content.fields as any;
+          console.log("ChatRoom 欄位:", fields);
+          
+          // 取得參與者地址列表
+          const participants = fields.participants || [];
+          console.log("參與者地址:", participants);
+          
+          if (participants.length === 0) {
+            console.log("聊天室目前沒有參與者");
+            setOnlineUsers([]);
+            return;
+          }
+          
+          // 獲取每個參與者的 Profile 資訊
+          const participantProfiles = fields.participant_profiles?.fields || {};
+          
+          const users = await Promise.all(
+            participants.map(async (address: string) => {
+              try {
+                // 從 participant_profiles Table 取得 Profile ID
+                const profileId = participantProfiles[address];
+                
+                if (!profileId) {
+                  console.warn(`未找到地址 ${address} 的 Profile ID`);
+                  return {
+                    name: `User_${address.slice(0, 6)}`,
+                    address: address,
+                    avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
+                  };
+                }
+                
+                // 用 Profile ID 讀取 Profile 物件
+                const profileResponse = await suiClient.getObject({
+                  id: profileId,
+                  options: { showContent: true },
+                });
+                
+                if (profileResponse.data?.content?.dataType === "moveObject") {
+                  const profileFields = profileResponse.data.content.fields as any;
+                  
+                  return {
+                    name: profileFields?.username || `User_${address.slice(0, 6)}`,
+                    address: address,
+                    avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
+                  };
+                }
+                
+                return {
+                  name: `User_${address.slice(0, 6)}`,
+                  address: address,
+                  avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
+                };
+              } catch (error) {
+                console.error(`獲取地址 ${address} 的 Profile 失敗:`, error);
+                return {
+                  name: `User_${address.slice(0, 6)}`,
+                  address: address,
+                  avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
+                };
+              }
+            })
+          );
+          
+          console.log("參與者列表已更新:", users);
+          setOnlineUsers(users);
+        } else {
+          console.error("ChatRoom does not exist or has invalid data.");
+          setOnlineUsers([]);
+        }
+      } catch (error) {
+        console.error("獲取參與者失敗:", error);
+        setOnlineUsers([]);
+      }
+    };
+
+    fetchUsers();
+  }, []);
 
   const validateUsername = (value: string): boolean => {
     if (value.trim().length < 3) {
@@ -268,9 +357,6 @@ const Chatroom = () => {
                 <h2 className="font-semibold text-foreground">
                   Online Users ({onlineUsers.length + 1})
                 </h2>
-              </div>
-              <div className="text-xs text-muted-foreground ml-7">
-                All Visitors: {visitorsCount}
               </div>
             </div>
             <ScrollArea className="h-[calc(100%-60px)]">
