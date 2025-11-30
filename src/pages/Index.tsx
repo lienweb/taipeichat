@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AVATAR_COLORS } from "@/constant";
 import { parseBlobInfo, uploadWalrus } from "@/helpers/uploadWalrus";
+import { useProfile } from "@/hooks/useProfile";
 import {
   ConnectModal,
   useCurrentAccount,
@@ -23,6 +24,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle,
+  Loader2,
   LogOut,
   Send,
   User,
@@ -53,6 +55,7 @@ const Index = () => {
   const account = useCurrentAccount();
   const { currentWallet, connectionStatus, isConnected } = useCurrentWallet();
   const { mutate: disconnect } = useDisconnectWallet();
+  const { mintProfile, isLoading: isMinting } = useProfile();
   const [registrationStep, setRegistrationStep] = useState<
     "wallet" | "username" | "confirm" | "complete"
   >("wallet");
@@ -170,22 +173,50 @@ const Index = () => {
     }
   };
 
-  const handleCompleteRegistration = () => {
-    // TODO: send api req onchain
+  const handleCompleteRegistration = async () => {
+    try {
+      if (!avatar?.blobId) {
+        alert("Please upload an avatar first");
+        return;
+      }
 
-    const welcomeMsg: Message = {
-      id: Date.now().toString(),
-      sender: "System",
-      content: `Welcome ${username} to the chatroom!`,
-      timestamp: new Date(),
-      isOwn: false,
-      isRead: false,
-    };
-    setMessages([welcomeMsg]);
+      console.log("🚀 Starting profile minting...");
+      console.log("Username:", username);
+      console.log("Bio:", "TaipeiChat user"); // 可以添加 bio 輸入框
+      console.log("Avatar Blob ID:", avatar.blobId);
 
-    // TODO: navigate to chatroom page
-    navigate("/chatroom");
-    setRegistrationStep("complete");
+      const result = await mintProfile(
+        username,
+        "TaipeiChat user", // 預設 bio，可以之後修改
+        avatar.blobId
+      );
+
+      if (result.success) {
+        console.log("✅ Profile minted successfully!");
+        console.log("Transaction Digest:", result.digest);
+        console.log("Profile ID:", result.profileId);
+
+        const welcomeMsg: Message = {
+          id: Date.now().toString(),
+          sender: "System",
+          content: `Welcome ${username} to the chatroom! Your profile has been created on-chain.`,
+          timestamp: new Date(),
+          isOwn: false,
+          isRead: false,
+        };
+        setMessages([welcomeMsg]);
+
+        // 導航到聊天室
+        navigate("/chatroom");
+        setRegistrationStep("complete");
+      } else {
+        console.error("❌ Failed to mint profile:", result.error);
+        alert(`Failed to create profile: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("❌ Registration error:", error);
+      alert(`Error: ${error}`);
+    }
   };
 
   const handleSendMessage = () => {
@@ -471,9 +502,17 @@ const Index = () => {
 
                 <Button
                   onClick={handleCompleteRegistration}
+                  disabled={isMinting}
                   className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
                 >
-                  Register
+                  {isMinting ? (
+                    <>
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      Creating Profile...
+                    </>
+                  ) : (
+                    "Register"
+                  )}
                 </Button>
               </div>
             </div>

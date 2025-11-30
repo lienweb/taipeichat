@@ -19,6 +19,12 @@ export const PUBLISHER_TESTNET =
 
 export const SUISCAN_URL_TESTNET = `https://suiscan.xyz/testnet`;
 
+export const CONTRACT_CONFIG = {
+  PACKAGE_ID: "0xdb4921a98221cf102e548f51d07cb6abac757373db680bfea76411e6431ec9fa",
+  PROFILE_REGISTRY_ID: "0x2085a143b244892c639a4d3d1642007367e7b37328d95a06ef863fc7545dc593",
+  CLOCK_ID: "0x6",
+};
+
 export const walrusServices: WalrusService[] = [
   {
     id: "service1",
