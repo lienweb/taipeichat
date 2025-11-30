@@ -32,6 +32,7 @@ import { AGGREGATOR_TESTNET, CONTRACT_CONFIG } from "@/constant";
 import { useChatroom } from "@/hooks/useChatroom";
 import { useSignAndExecuteTransaction } from "@mysten/dapp-kit";
 import { createJoinChatroomTransaction, findDefaultChatroomId } from "@/helpers/chatroom";
+import { useProfile } from "@/hooks/useProfile";
 
 interface Message {
   id: string;
@@ -56,9 +57,12 @@ const Chatroom = () => {
   const { disconnect } = useWallet();
   const suiClient = new SuiClient({ url: getFullnodeUrl("testnet") });
   const { mutateAsync: signAndExecuteTransaction } = useSignAndExecuteTransaction();
+  const { getUserProfile } = useProfile();
   
   const profile = location.state?.profile as ProfileData | undefined;
-  const profileId = location.state?.profileId as string | undefined;
+  const [profileId, setProfileId] = useState<string | undefined>(
+    location.state?.profileId as string | undefined
+  );
   
   console.log("Chatroom initialized with:", {
     profile,
@@ -92,6 +96,27 @@ const Chatroom = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // 自動獲取 profileId（如果 location.state 中沒有）
+  useEffect(() => {
+    const fetchProfileId = async () => {
+      if (!profileId && account?.address) {
+        console.log("ProfileId not found in location.state, fetching from chain...");
+        try {
+          const userProfile = await getUserProfile(account.address);
+          if (userProfile?.id) {
+            setProfileId(userProfile.id);
+            console.log("✅ ProfileId fetched:", userProfile.id);
+          } else {
+            console.warn("❌ No profile found for this address");
+          }
+        } catch (error) {
+          console.error("❌ Error fetching profileId:", error);
+        }
+      }
+    };
+    fetchProfileId();
+  }, [account?.address, profileId, getUserProfile]);
 
   useEffect(() => {
     if (!chatroomId) {

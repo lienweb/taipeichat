@@ -303,7 +303,7 @@ const Index = () => {
       const profile = await getUserProfile(account.address);
       
       if (profile) {
-        navigate("/chatroom", { state: { profile } });
+        navigate("/chatroom", { state: { profile, profileId: profile.id } });
       } else {
         alert("No profile found. Please register first.");
       }
