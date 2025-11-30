@@ -25,3 +25,10 @@ dist-ssr
 *.sln
 *.sw?
 *.code-workspace
+
+# Environment
+.env
+
+# Contract build artifacts
+contract/Move.lock
+contract/publish_output.txt
