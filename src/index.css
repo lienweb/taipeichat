@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 200 20% 98%;
+    --foreground: 200 100% 20%;
+    --card: 200 10% 99%;
+    --card-foreground: 200 100% 20%;
+    --popover: 200 10% 99%;
+    --popover-foreground: 200 100% 20%;
+    --primary: 200 100% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 200 100% 50%;
+    --secondary-foreground: 200 100% 20%;
+    --muted: 200 20% 92%;
+    --muted-foreground: 200 30% 45%;
+    --accent: 200 100% 40%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 200 20% 88%;
+    --input: 200 20% 94%;
+    --ring: 200 100% 40%;
+    --radius: 0.75rem;
+    --gradient-primary: linear-gradient(135deg, hsl(200 100% 40%) 0%, hsl(200 100% 50%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(200 100% 40%) 0%, hsl(190 100% 45%) 100%);
+    --glow-primary: 0 0 30px hsl(200 100% 40% / 0.3);
+    --glow-accent: 0 0 20px hsl(200 100% 40% / 0.4);
+    --sidebar-background: 200 10% 99%;
+    --sidebar-foreground: 200 100% 20%;
+    --sidebar-primary: 200 100% 40%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 200 20% 92%;
+    --sidebar-accent-foreground: 200 100% 20%;
+    --sidebar-border: 200 20% 88%;
+    --sidebar-ring: 200 100% 40%;
+  }
+
+  .dark {
+    --background: 200 20% 98%;
+    --foreground: 200 100% 20%;
+    --card: 200 10% 99%;
+    --card-foreground: 200 100% 20%;
+    --popover: 200 10% 99%;
+    --popover-foreground: 200 100% 20%;
+    --primary: 200 100% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 200 100% 50%;
+    --secondary-foreground: 200 100% 20%;
+    --muted: 200 20% 92%;
+    --muted-foreground: 200 30% 45%;
+    --accent: 200 100% 40%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 200 20% 88%;
+    --input: 200 20% 94%;
+    --ring: 200 100% 40%;
+    --sidebar-background: 200 10% 99%;
+    --sidebar-foreground: 200 100% 20%;
+    --sidebar-primary: 200 100% 40%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 200 20% 92%;
+    --sidebar-accent-foreground: 200 100% 20%;
+    --sidebar-border: 200 20% 88%;
+    --sidebar-ring: 200 100% 40%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
