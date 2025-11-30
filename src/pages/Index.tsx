@@ -12,8 +12,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AVATAR_COLORS } from "@/constant";
-import { useWallet } from "@/hooks/useWallet";
-import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
+import { parseBlobInfo, uploadWalrus } from "@/helpers/uploadWalrus";
+import {
+  ConnectModal,
+  useCurrentAccount,
+  useCurrentWallet,
+  useDisconnectWallet,
+} from "@mysten/dapp-kit";
 import {
   ArrowRight,
   Check,
@@ -43,18 +48,20 @@ interface OnlineUser {
   avatarColor: string;
 }
 
-// 預設的頭像顏色選項
-
 const Index = () => {
   const navigate = useNavigate();
   const account = useCurrentAccount();
-  const { disconnect } = useWallet();
+  const { currentWallet, connectionStatus, isConnected } = useCurrentWallet();
+  const { mutate: disconnect } = useDisconnectWallet();
   const [registrationStep, setRegistrationStep] = useState<
     "wallet" | "username" | "confirm" | "complete"
-  >("complete");
+  >("wallet");
   const [username, setUsername] = useState("");
+  const [open, setOpen] = useState<boolean>(false);
   const [usernameError, setUsernameError] = useState("");
-  const [avatarImage, setAvatarImage] = useState<string>("");
+  const [avatar, setAvatar] = useState<{ blobId: string; url: string } | null>(
+    null,
+  );
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
@@ -89,10 +96,9 @@ const Index = () => {
   }, [messages]);
 
   useEffect(() => {
-    if (!account && registrationStep === "wallet") {
+    if (!account) {
       setRegistrationStep("wallet");
     }
-    setRegistrationStep("username");
   }, [account]);
 
   const validateUsername = (value: string): boolean => {
@@ -124,37 +130,48 @@ const Index = () => {
     }
   };
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      const file = e.target.files?.[0];
+      if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      alert("Please upload an image file");
-      return;
+      if (!file.type.startsWith("image/")) {
+        alert("Please upload an image file");
+        return;
+      }
+
+      if (file.size > 2 * 1024 * 1024) {
+        throw new Error("Image size must be less than 2MB");
+      }
+
+      setIsUploadingAvatar(true);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAvatar((pre) => ({ ...pre, url: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+
+      const buffer = await file.arrayBuffer();
+      const blobInfo = await uploadWalrus(buffer);
+      if (!blobInfo.data) {
+        throw new Error(`Failed to upload to Walrus: ${blobInfo.status}`);
+      }
+
+      const { status, info } = parseBlobInfo(blobInfo.data, file.type);
+      if (status === "error" || !info) {
+        throw new Error("Failed to parse blob info");
+      }
+      setAvatar((pre) => ({ ...pre, blobId: info.blobId }));
+      setIsUploadingAvatar(false);
+      console.log("handleAvatarUpload", info.blobId);
+    } catch (error) {
+      console.error("Avatar upload error", error);
+      alert(error);
     }
-
-    if (file.size > 2 * 1024 * 1024) {
-      alert("Image size must be less than 2MB");
-      return;
-    }
-
-    setIsUploadingAvatar(true);
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setTimeout(() => {
-        setAvatarImage(reader.result as string);
-        setIsUploadingAvatar(false);
-      }, 3000);
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleCompleteRegistration = () => {
-    localStorage.setItem("username", username);
-    if (avatarImage) {
-      localStorage.setItem("avatarImage", avatarImage);
-    }
+    // TODO: send api req onchain
 
     const welcomeMsg: Message = {
       id: Date.now().toString(),
@@ -165,6 +182,9 @@ const Index = () => {
       isRead: false,
     };
     setMessages([welcomeMsg]);
+
+    // TODO: navigate to chatroom page
+    navigate("/chatroom");
     setRegistrationStep("complete");
   };
 
@@ -236,11 +256,10 @@ const Index = () => {
   }
 
   // FIXME: routing /profile
-  // step 1: wallet connect
   if (registrationStep === "wallet") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="w-full max-w-md mx-auto animate-fade-slide-in">
+        <div className="w-full max-w-md mx-auto animate-fade-slide-in ">
           <RegistrationStepper currentStep={1} />
 
           <Card className="w-full p-8 bg-card border shadow-sm">
@@ -249,27 +268,35 @@ const Index = () => {
                 <div className="w-20 h-20 mx-auto bg-primary rounded-2xl flex items-center justify-center">
                   <Wallet className="w-10 h-10 text-primary-foreground" />
                 </div>
-                <h1 className="text-3xl font-bold text-primary">
-                  Web3 Chatroom
-                </h1>
+                <h1 className="text-3xl font-bold text-primary">TaipeiChat</h1>
                 <p className="text-muted-foreground">
                   Connect your wallet to get started
                 </p>
               </div>
-
-              {/* <Button
-                onClick={connect}
-                disabled={isConnecting}
-                className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
-              >
-                <Wallet className="mr-2 h-5 w-5" />
-                {isConnecting ? "Connecting..." : "Connect Wallet"}
-              </Button> */}
-              <ConnectButton />
-
-              <div className="text-xs text-center text-muted-foreground">
-                <p>Click button to simulate connection</p>
-              </div>
+              {account ? (
+                <Button
+                  className="w-full h-12 border-2 border-primary text-white"
+                  onClick={() => setRegistrationStep("username")}
+                >
+                  address: {account.address.slice(0, 6)}...
+                  {account.address.slice(-4)}, click to continue
+                </Button>
+              ) : (
+                <ConnectModal
+                  trigger={
+                    <Button
+                      // onClick={handleConnectBtnClick}
+                      disabled={isConnected}
+                      className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
+                    >
+                      <Wallet className="mr-2 h-5 w-5" />
+                      {isConnected ? "Connecting..." : "Connect Wallet"}
+                    </Button>
+                  }
+                  open={open}
+                  onOpenChange={(isOpen) => setOpen(isOpen)}
+                />
+              )}
             </div>
           </Card>
         </div>
@@ -277,7 +304,6 @@ const Index = () => {
     );
   }
 
-  // step 2：setup profile
   if (registrationStep === "username") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -290,16 +316,15 @@ const Index = () => {
                 <div className="w-20 h-20 mx-auto bg-primary rounded-full flex items-center justify-center">
                   <User className="w-10 h-10 text-primary-foreground" />
                 </div>
-                <h1 className="text-3xl font-bold text-foreground">
-                  Set Username
-                </h1>
+                <h1 className="text-3xl font-bold text-foreground">Username</h1>
                 <p className="text-muted-foreground">
                   Please enter your username
                 </p>
-                {/* <div className="text-xs text-primary bg-primary/10 rounded-lg p-2 font-mono flex items-center justify-center gap-2">
+                <div className="text-xs text-primary bg-primary/10 rounded-lg p-2 font-mono flex items-center justify-center gap-2">
                   <CheckCircle className="w-4 h-4" />
-                  {!!account.address && account.address}
-                </div> */}
+                  {account.address.slice(0, 6)}...
+                  {account.address.slice(-4)}
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -339,9 +364,9 @@ const Index = () => {
                   </label>
                   <div className="flex items-center gap-4">
                     <Avatar className="h-16 w-16">
-                      {avatarImage ? (
+                      {avatar?.url ? (
                         <img
-                          src={avatarImage}
+                          src={avatar.url}
                           alt="Avatar preview"
                           className="object-cover"
                         />
@@ -363,7 +388,7 @@ const Index = () => {
                         type="button"
                         variant="outline"
                         onClick={() => avatarInputRef.current?.click()}
-                        disabled={isUploadingAvatar}
+                        disabled={isUploadingAvatar || !!avatar?.blobId}
                         className="w-full"
                       >
                         {isUploadingAvatar ? "Uploading..." : "Upload Avatar"}
@@ -380,7 +405,7 @@ const Index = () => {
                   disabled={
                     username.trim().length < 3 ||
                     isUploadingAvatar ||
-                    !avatarImage
+                    !avatar?.blobId
                   }
                   className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
                 >
@@ -395,7 +420,6 @@ const Index = () => {
     );
   }
 
-  // step 3: register
   if (registrationStep === "confirm") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -411,18 +435,15 @@ const Index = () => {
                 <h1 className="text-3xl font-bold text-primary">
                   Confirm Registration
                 </h1>
-                <p className="text-muted-foreground">
-                  Please confirm your information
-                </p>
               </div>
 
               <div className="space-y-4">
                 <div className="bg-muted rounded-lg p-4 space-y-3">
-                  {avatarImage && (
+                  {avatar.blobId && (
                     <div className="flex items-center justify-center mb-3">
                       <Avatar className="h-20 w-20">
                         <img
-                          src={avatarImage}
+                          src={avatar.url}
                           alt="Avatar"
                           className="object-cover"
                         />
@@ -441,10 +462,10 @@ const Index = () => {
                     <span className="text-sm text-muted-foreground">
                       Wallet Address
                     </span>
-                    {/* <span className="text-xs text-primary font-mono">
+                    <span className="text-xs text-primary font-mono">
                       {account.address?.slice(0, 6)}...
                       {account.address?.slice(-4)}
-                    </span> */}
+                    </span>
                   </div>
                 </div>
 
@@ -452,7 +473,7 @@ const Index = () => {
                   onClick={handleCompleteRegistration}
                   className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
                 >
-                  Complete Registration
+                  Register
                 </Button>
               </div>
             </div>
@@ -464,7 +485,6 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background animate-fade-slide-in">
-      {/* TODO: layout navbar component */}
       <header className="border-b border-border bg-card">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -472,9 +492,7 @@ const Index = () => {
               <Wallet className="w-5 h-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-foreground">
-                Web3 Chatroom
-              </h1>
+              <h1 className="text-xl font-bold text-foreground">TaipeiChat</h1>
               <p className="text-xs text-muted-foreground">{username}</p>
             </div>
           </div>
@@ -511,7 +529,7 @@ const Index = () => {
                 Edit Profile
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={disconnect}
+                onClick={() => disconnect()}
                 className="cursor-pointer text-destructive focus:text-destructive"
               >
                 <LogOut className="mr-2 h-4 w-4" />
