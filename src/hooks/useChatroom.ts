@@ -50,6 +50,12 @@ export const useChatroom = (chatroomId: string | null, currentUserAddress?: stri
   const [resolvedChatroomId, setResolvedChatroomId] = useState<string | null>(
     chatroomId,
   );
+  const [logs, setLogs] = useState<string[]>([]);
+
+  const addLog = useCallback((msg: string) => {
+    console.log(msg);
+    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  }, []);
 
   /**
    * Check if address is a participant
@@ -184,7 +190,7 @@ export const useChatroom = (chatroomId: string | null, currentUserAddress?: stri
       const messageList: ChatroomMessage[] = [];
       const messageCount = chatroomData.messageCount;
 
-      console.log(`📨 Fetching ${messageCount} messages from chatroom...`);
+      addLog(`📨 Fetching ${messageCount} messages from chatroom...`);
 
       // 使用 dynamic field 獲取訊息
       for (let i = 0; i < messageCount; i++) {
@@ -195,21 +201,21 @@ export const useChatroom = (chatroomId: string | null, currentUserAddress?: stri
             name: {
               type: `${PACKAGE_ID}::chatroom::MessageKey`,
               value: {
-                index: i.toString(),
+                index: i,
               },
             },
           });
 
-          console.log(`Message ${i} FULL DATA:`, JSON.stringify(messageFieldObj.data?.content, null, 2));
+          // addLog(`Message ${i} FULL DATA: ${JSON.stringify(messageFieldObj.data?.content, null, 2)}`);
 
           if (messageFieldObj.data?.content?.dataType === "moveObject") {
             const messageContent = messageFieldObj.data.content as any;
             
-            console.log(`Message ${i} content.fields:`, JSON.stringify(messageContent.fields, null, 2));
+            // addLog(`Message ${i} content.fields: ${JSON.stringify(messageContent.fields, null, 2)}`);
             
             // Dynamic field 的結構是: Field<K, V> 其中 fields = { name: K, value: V }
             const fieldValue = messageContent.fields?.value;
-            console.log(`Message ${i} field.value:`, JSON.stringify(fieldValue, null, 2));
+            // addLog(`Message ${i} field.value: ${JSON.stringify(fieldValue, null, 2)}`);
             
             // Message 物件的 fields 才是實際資料
             let messageFields;
@@ -221,7 +227,7 @@ export const useChatroom = (chatroomId: string | null, currentUserAddress?: stri
               messageFields = messageContent.fields;
             }
 
-            console.log(`Message ${i} final messageFields:`, JSON.stringify(messageFields, null, 2));
+            // addLog(`Message ${i} final messageFields: ${JSON.stringify(messageFields, null, 2)}`);
 
             if (messageFields && messageFields.sender) {
               const message = {
@@ -234,18 +240,18 @@ export const useChatroom = (chatroomId: string | null, currentUserAddress?: stri
                 profileImage: messageFields.profile_image || undefined,
               };
               
-              console.log(`✅ Message ${i} parsed:`, message);
+              addLog(`✅ Message ${i}: ${message.content}`);
               messageList.push(message);
             } else {
-              console.warn(`⚠️ Message ${i} has no valid fields, messageFields:`, messageFields);
+              addLog(`⚠️ Message ${i} has no valid fields`);
             }
           }
         } catch (err) {
-          console.error(`❌ Error fetching message ${i}:`, err);
+          addLog(`❌ Error fetching message ${i}: ${err}`);
         }
       }
 
-      console.log(`📨 Total messages fetched: ${messageList.length}`);
+      addLog(`📨 Total messages fetched: ${messageList.length}`);
       setMessages(messageList);
     } catch (err) {
       console.error("Fetch messages error:", err);
@@ -421,8 +427,8 @@ export const useChatroom = (chatroomId: string | null, currentUserAddress?: stri
     refresh: async () => {
       await fetchChatroomData();
       await fetchMessages();
-      await fetchParticipants();
     },
+    logs,
   };
 };
 
