@@ -22,7 +22,7 @@ module taipeichat::profile {
     public struct PROFILE has drop {}
 
     /// Profile NFT - represents a user
-    public struct Profile has key {
+    public struct Profile has key, store {
         id: UID,
         owner: address,
         username: String,
@@ -88,14 +88,15 @@ module taipeichat::profile {
     // ===== Main Functions (For Client)=====
 
     /// Mint a new Profile NFT
-    public fun mint_profile(
+    #[allow(lint(self_transfer))]
+    public fun mint_and_transfer_profile(
         registry: &mut ProfileRegistry,
         username: String,
         bio: String,
         image_blob_id: String,
         clock: &Clock,
         ctx: &mut TxContext
-    ): Profile {
+    ) {
         let sender = ctx.sender();
         assert!(!registry.profiles.contains(sender), EProfileAlreadyExists);
         assert!(!string::is_empty(&image_blob_id), EImageRequired);
@@ -122,7 +123,7 @@ module taipeichat::profile {
             created_at: profile.created_at,
         });
 
-        profile
+        transfer::public_transfer(profile, ctx.sender());
     }
 
     public fun update_image(

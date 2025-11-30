@@ -4,3 +4,12 @@ export type WalrusService = {
   publisherUrl: string;
   aggregatorUrl: string;
 };
+
+export interface ProfileData {
+  id?: string;
+  username: string;
+  bio: string;
+  imageBlobId: string;
+  owner: string;
+  createdAt: string;
+}

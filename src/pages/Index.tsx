@@ -13,7 +13,9 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AVATAR_COLORS } from "@/constant";
 import { parseBlobInfo, uploadWalrus } from "@/helpers/uploadWalrus";
+import { useProfile } from "@/hooks/useProfile";
 import {
+  ConnectButton,
   ConnectModal,
   useCurrentAccount,
   useCurrentWallet,
@@ -23,6 +25,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle,
+  Loader2,
   LogOut,
   Send,
   User,
@@ -53,6 +56,7 @@ const Index = () => {
   const account = useCurrentAccount();
   const { currentWallet, connectionStatus, isConnected } = useCurrentWallet();
   const { mutate: disconnect } = useDisconnectWallet();
+  const { mintProfile, isLoading: isMinting, getUserProfile } = useProfile();
   const [registrationStep, setRegistrationStep] = useState<
     "wallet" | "username" | "confirm" | "complete"
   >("wallet");
@@ -170,22 +174,60 @@ const Index = () => {
     }
   };
 
-  const handleCompleteRegistration = () => {
-    // TODO: send api req onchain
+  const handleCompleteRegistration = async () => {
+    try {
+      if (!avatar?.blobId) {
+        alert("Please upload an avatar first");
+        return;
+      }
 
-    const welcomeMsg: Message = {
-      id: Date.now().toString(),
-      sender: "System",
-      content: `Welcome ${username} to the chatroom!`,
-      timestamp: new Date(),
-      isOwn: false,
-      isRead: false,
-    };
-    setMessages([welcomeMsg]);
+      console.log("🚀 Starting profile minting...");
+      console.log("Username:", username);
+      console.log("Bio:", "TaipeiChat user"); // 可以添加 bio 輸入框
+      console.log("Avatar Blob ID:", avatar.blobId);
 
-    // TODO: navigate to chatroom page
-    navigate("/chatroom");
-    setRegistrationStep("complete");
+      const result = await mintProfile(
+        username,
+        "TaipeiChat user", // 預設 bio，可以之後修改
+        avatar.blobId,
+      );
+
+      if (result.success) {
+        console.log("✅ Profile minted successfully!");
+        console.log("Transaction Digest:", result.digest);
+        console.log("Profile ID:", result.profileId);
+
+        const welcomeMsg: Message = {
+          id: Date.now().toString(),
+          sender: "System",
+          content: `Welcome ${username} to the chatroom! Your profile has been created on-chain.`,
+          timestamp: new Date(),
+          isOwn: false,
+          isRead: false,
+        };
+        setMessages([welcomeMsg]);
+
+        navigate("/chatroom", { 
+          state: { 
+            profile: {
+              username,
+              bio: "TaipeiChat user",
+              imageBlobId: avatar.blobId,
+              owner: account.address,
+              createdAt: Date.now().toString(),
+            },
+            profileId: result.profileId,
+          } 
+        });
+        setRegistrationStep("complete");
+      } else {
+        console.error("❌ Failed to mint profile:", result.error);
+        alert(`Failed to create profile: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("❌ Registration error:", error);
+      alert(`Error: ${error}`);
+    }
   };
 
   const handleSendMessage = () => {
@@ -250,12 +292,33 @@ const Index = () => {
       }
     }
   };
+  const handleLoginBtn = async () => {
+    if (!account?.address) {
+      alert("Please connect your wallet first");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const profile = await getUserProfile(account.address);
+      
+      if (profile) {
+        navigate("/chatroom", { state: { profile, profileId: profile.id } });
+      } else {
+        alert("No profile found. Please register first.");
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      alert("Failed to check profile. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (isLoading) {
     return <PageLoader />;
   }
 
-  // FIXME: routing /profile
   if (registrationStep === "wallet") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -273,30 +336,23 @@ const Index = () => {
                   Connect your wallet to get started
                 </p>
               </div>
-              {account ? (
+              <ConnectButton />
+              <div className="flex gap-2">
                 <Button
-                  className="w-full h-12 border-2 border-primary text-white"
+                  variant="outline"
+                  className="flex-1 h-12"
+                  onClick={handleLoginBtn}
+                  disabled={!account?.address}
+                >
+                  Login
+                </Button>
+                <Button
+                  className="flex-1 h-12 border-2 border-primary text-white"
                   onClick={() => setRegistrationStep("username")}
                 >
-                  address: {account.address.slice(0, 6)}...
-                  {account.address.slice(-4)}, click to continue
+                  Register
                 </Button>
-              ) : (
-                <ConnectModal
-                  trigger={
-                    <Button
-                      // onClick={handleConnectBtnClick}
-                      disabled={isConnected}
-                      className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
-                    >
-                      <Wallet className="mr-2 h-5 w-5" />
-                      {isConnected ? "Connecting..." : "Connect Wallet"}
-                    </Button>
-                  }
-                  open={open}
-                  onOpenChange={(isOpen) => setOpen(isOpen)}
-                />
-              )}
+              </div>
             </div>
           </Card>
         </div>
@@ -471,9 +527,17 @@ const Index = () => {
 
                 <Button
                   onClick={handleCompleteRegistration}
+                  disabled={isMinting}
                   className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
                 >
-                  Register
+                  {isMinting ? (
+                    <>
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      Creating Profile...
+                    </>
+                  ) : (
+                    "Register"
+                  )}
                 </Button>
               </div>
             </div>

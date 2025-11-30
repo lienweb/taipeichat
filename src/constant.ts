@@ -16,8 +16,20 @@ export const AVATAR_COLORS = [
 
 export const PUBLISHER_TESTNET =
   "https://publisher.walrus-testnet.walrus.space";
+export const AGGREGATOR_TESTNET =
+  "https://aggregator.walrus-testnet.walrus.space";
 
 export const SUISCAN_URL_TESTNET = `https://suiscan.xyz/testnet`;
+
+export const CONTRACT_CONFIG = {
+  PACKAGE_ID: "0x4e2a8c66fe62c78e2ff9005a5616e014bb34e3d7fd3a4b687403177e925d70d7",
+  PROFILE_REGISTRY_ID: "0xb3ddbc6182a5612196fd558eda0503482da21c14d3787b19a8b3354f64df3fbc",
+  PUBLISHER_ID: "0x5255709e7cdac8fc5355de61d22add14bb749adf3af6b47bfa0afd1e4ac668a9",
+  DISPLAY_ID: "0x86d8903b2d811a9e6352ec39fb2307193b0daffb99d9ab2a758655b383a56727",
+  UPGRADE_CAP_ID: "0x99b86cd90b062031f95e60205e91a3011170ff6edb122b0a8f57cf3d4253cafc",
+  CHATROOM_ID: "0xf8bc4fa40a686b26b5194f5f6c0d59882ba5fc684e84a9db4dd5aed66a78bf54",
+  CLOCK_ID: "0x6",
+};
 
 export const walrusServices: WalrusService[] = [
   {

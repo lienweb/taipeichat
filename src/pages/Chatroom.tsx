@@ -46,6 +46,7 @@ interface OnlineUser {
   name: string;
   address: string;
   avatarColor: string;
+  imageUrl?: string;
 }
 
 // 合約配置
@@ -64,10 +65,44 @@ const PROFILE_REGISTRY_ID = CONTRACT_CONFIG.PROFILE_REGISTRY_ID;
 
 const Chatroom = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const account = useCurrentAccount();
   const { disconnect } = useWallet();
   const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
   const [messages, setMessages] = useState<Message[]>([]);
+  const suiClient = new SuiClient({ url: getFullnodeUrl("testnet") });
+  const { mutateAsync: signAndExecuteTransaction } = useSignAndExecuteTransaction();
+  const { getUserProfile } = useProfile();
+  
+  const profile = location.state?.profile as ProfileData | undefined;
+  const [profileId, setProfileId] = useState<string | undefined>(
+    location.state?.profileId as string | undefined
+  );
+  
+  console.log("Chatroom initialized with:", {
+    profile,
+    profileId,
+    locationState: location.state
+  });
+  
+  const [username, setUsername] = useState(profile?.username || "");
+  const [usernameError, setUsernameError] = useState("");
+  const [avatarImage, setAvatarImage] = useState<string>(
+    profile?.imageBlobId 
+      ? `${AGGREGATOR_TESTNET}/v1/blobs/${profile.imageBlobId}`
+      : ""
+  );
+  const [chatroomId, setChatroomId] = useState<string | null>(CONTRACT_CONFIG.CHATROOM_ID);
+  const [hasJoinedChatroom, setHasJoinedChatroom] = useState(false);
+  
+  const { 
+    messages: chatroomMessages, 
+    participants: chatroomParticipants,
+    sendMessage: sendChatroomMessage,
+    refresh,
+    isLoading: isChatroomLoading,
+  } = useChatroom(chatroomId);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -85,19 +120,45 @@ const Chatroom = () => {
     setDebugLogs(prev => [...prev, `[DEBUG ${new Date().toLocaleTimeString()}] ${message}`]);
   };
 
+  // 自動獲取 profileId（如果 location.state 中沒有）
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, []);
+    const fetchProfileId = async () => {
+      if (!profileId && account?.address) {
+        console.log("ProfileId not found in location.state, fetching from chain...");
+        try {
+          const userProfile = await getUserProfile(account.address);
+          if (userProfile?.id) {
+            setProfileId(userProfile.id);
+            console.log("✅ ProfileId fetched:", userProfile.id);
+          } else {
+            console.warn("❌ No profile found for this address");
+          }
+        } catch (error) {
+          console.error("❌ Error fetching profileId:", error);
+        }
+      }
+    };
+    fetchProfileId();
+  }, [account?.address, profileId, getUserProfile]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollIntoView({ behavior: "smooth" });
+    if (!chatroomId) {
+      const initChatroom = async () => {
+        try {
+          const defaultChatroomId = await findDefaultChatroomId(suiClient);
+          if (defaultChatroomId) {
+            setChatroomId(defaultChatroomId);
+            console.log("Found default chatroom:", defaultChatroomId);
+          } else {
+            console.error("No default chatroom found.");
+          }
+        } catch (error) {
+          console.error("Error finding chatroom:", error);
+        }
+      };
+      initChatroom();
     }
-  }, [messages]);
+  }, []);
 
   // 從合約讀取訊息
   const fetchMessages = async () => {
@@ -281,6 +342,73 @@ const Chatroom = () => {
         
         if (profilesTable.length === 0) {
           console.log("目前沒有註冊用戶");
+=======
+  useEffect(() => {
+    const joinChatroom = async () => {
+      if (!chatroomId || !profileId || !account?.address || hasJoinedChatroom) {
+        console.log("Skip joining chatroom:", {
+          hasChatroomId: !!chatroomId,
+          hasProfileId: !!profileId,
+          hasAccount: !!account?.address,
+          alreadyJoined: hasJoinedChatroom
+        });
+        return;
+      }
+
+      console.log("Attempting to join chatroom...");
+      setHasJoinedChatroom(true);
+
+      try {
+        const tx = createJoinChatroomTransaction(chatroomId, profileId);
+        tx.setGasBudget(10000000);
+        const result = await signAndExecuteTransaction({ transaction: tx });
+        
+        console.log("✅ Joined chatroom successfully:", result);
+        
+        await fetchUsers();
+        await refresh();
+      } catch (error: any) {
+        console.error("❌ Failed to join chatroom:", error);
+        
+        if (error?.message?.includes("ENotParticipant") || error?.message?.includes("already")) {
+          console.log("Already a participant or duplicate join attempt");
+        } else {
+          console.error("Join chatroom error details:", error);
+        }
+        
+        await fetchUsers();
+        await refresh();
+      }
+    };
+
+    joinChatroom();
+  }, [chatroomId, profileId, account?.address, hasJoinedChatroom]);
+
+  const fetchUsers = async () => {
+    if (!chatroomId) return;
+
+    console.log("Fetching chatroom participants...");
+    try {
+      const response = await suiClient.getObject({
+        id: chatroomId,
+        options: { showContent: true },
+      });
+
+      console.log("ChatRoom response:", response);
+
+      if (response.data?.content?.dataType === "moveObject" && response.data.content.fields) {
+        const fields = response.data.content.fields as any;
+        console.log("ChatRoom fields:", fields);
+        
+        const participants = fields.participants || [];
+        console.log("Participants:", participants);
+        
+        if (participants.length === 0) {
+          console.log("No participants in chatroom");
+
+          
+          
+          >>>>> main
           setOnlineUsers([]);
           return;
         }
@@ -532,7 +660,7 @@ const Chatroom = () => {
                 Edit Profile
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={disconnect}
+                onClick={()=>{disconnect(); navigate("/")}}
                 className="cursor-pointer text-destructive focus:text-destructive"
               >
                 <LogOut className="mr-2 h-4 w-4" />
@@ -567,6 +695,17 @@ const Chatroom = () => {
                   >
                     <div className="relative">
                       <Avatar className="h-10 w-10">
+                        {user.imageUrl ? (
+                          <img
+                            src={user.imageUrl}
+                            alt={user.name}
+                            className="object-cover"
+                            onError={(e) => {
+                              // 如果圖片載入失敗，隱藏 img 標籤，讓 fallback 顯示
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        ) : null}
                         <AvatarFallback
                           style={{ backgroundColor: user.avatarColor }}
                           className="text-white font-semibold"
@@ -593,26 +732,30 @@ const Chatroom = () => {
           <Card className="lg:col-span-3 bg-card border flex flex-col h-full">
             <ScrollArea className="flex-1 p-6">
               <div className="space-y-4">
-                {messages.map((msg) => (
+                {chatroomMessages.map((msg) => (
                   <div
                     key={msg.id}
                     className={`flex ${msg.isOwn ? "justify-end" : "justify-start"} gap-3 animate-slide-up`}
                   >
-                    {/* 左側頭像 - 非自己的訊息 */}
                     {!msg.isOwn && (
                       <Avatar className="h-10 w-10 flex-shrink-0">
+                        {msg.profileImage ? (
+                          <img
+                            src={`${AGGREGATOR_TESTNET}/v1/blobs/${msg.profileImage}`}
+                            alt={msg.username}
+                            className="object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        ) : null}
                         <AvatarFallback
                           style={{
-                            backgroundColor:
-                              msg.sender === "System"
-                                ? "hsl(200, 100%, 40%)"
-                                : AVATAR_COLORS[0],
+                            backgroundColor: AVATAR_COLORS[0],
                           }}
                           className="text-white font-semibold text-sm"
                         >
-                          {msg.sender === "System"
-                            ? "S"
-                            : msg.sender.charAt(0).toUpperCase()}
+                          {msg.username?.charAt(0).toUpperCase() || "?"}
                         </AvatarFallback>
                       </Avatar>
                     )}
@@ -638,34 +781,8 @@ const Chatroom = () => {
                         </span>
                       </div>
                       <p className="text-sm break-words">{msg.content}</p>
-
-                      {/* 已讀/未讀狀態 - 只顯示在自己的訊息 */}
-                      {msg.isOwn && (
-                        <div className="flex justify-end mt-1">
-                          {msg.isRead ? (
-                            // 雙勾 - 已讀
-                            <div className="flex items-center gap-0.5">
-                              <Check
-                                className="h-3 w-3 opacity-70"
-                                strokeWidth={3}
-                              />
-                              <Check
-                                className="h-3 w-3 opacity-70 -ml-2"
-                                strokeWidth={3}
-                              />
-                            </div>
-                          ) : (
-                            // 單勾 - 已發送但未讀
-                            <Check
-                              className="h-3 w-3 opacity-50"
-                              strokeWidth={2.5}
-                            />
-                          )}
-                        </div>
-                      )}
                     </div>
 
-                    {/* 右側頭像 - 自己的訊息 */}
                     {msg.isOwn && (
                       <Avatar className="h-10 w-10 flex-shrink-0">
                         <AvatarFallback
