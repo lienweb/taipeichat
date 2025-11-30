@@ -172,7 +172,7 @@ export const useChatroom = (chatroomId: string | null) => {
     } catch (err) {
       console.error("Fetch participants error:", err);
     }
-  }, [chatroomId, chatroomData, client, getUserProfile]);
+  }, [resolvedChatroomId, chatroomData, client, getUserProfile]);
 
   /**
    * Fetch messages from chatroom
@@ -349,7 +349,7 @@ export const useChatroom = (chatroomId: string | null) => {
    * Listen to new messages via events
    */
   useEffect(() => {
-    if (!chatroomId) return;
+    if (!resolvedChatroomId) return;
 
     const interval = setInterval(async () => {
       await fetchChatroomData();
@@ -358,26 +358,26 @@ export const useChatroom = (chatroomId: string | null) => {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [chatroomId, fetchChatroomData, fetchMessages, fetchParticipants]);
+  }, [resolvedChatroomId, fetchChatroomData, fetchMessages, fetchParticipants]);
 
   /**
    * Initialize chatroom data
    */
   useEffect(() => {
-    if (chatroomId) {
+    if (resolvedChatroomId) {
       fetchChatroomData();
     }
-  }, [chatroomId, fetchChatroomData]);
+  }, [resolvedChatroomId, fetchChatroomData]);
 
   /**
    * Update participant status when chatroom data changes
    */
   useEffect(() => {
-    if (chatroomData && chatroomId) {
+    if (chatroomData && resolvedChatroomId) {
       fetchParticipants();
       fetchMessages();
     }
-  }, [chatroomData, chatroomId, fetchParticipants, fetchMessages]);
+  }, [chatroomData, resolvedChatroomId]);
 
   return {
     messages,
