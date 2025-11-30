@@ -342,7 +342,6 @@ const Chatroom = () => {
         
         if (profilesTable.length === 0) {
           console.log("目前沒有註冊用戶");
-=======
   useEffect(() => {
     const joinChatroom = async () => {
       if (!chatroomId || !profileId || !account?.address || hasJoinedChatroom) {
