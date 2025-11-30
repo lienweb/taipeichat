@@ -36,7 +36,7 @@ export interface ChatroomData {
   messageCount: number;
 }
 
-export const useChatroom = (chatroomId: string | null) => {
+export const useChatroom = (chatroomId: string | null, currentUserAddress?: string) => {
   const client = useSuiClient();
   const { mutateAsync: signAndExecuteTransaction } =
     useSignAndExecuteTransaction();
@@ -175,7 +175,7 @@ export const useChatroom = (chatroomId: string | null) => {
   }, [resolvedChatroomId, chatroomData, client, getUserProfile]);
 
   /**
-   * Fetch messages from chatroom
+   * Fetch messages from chatroom dynamic fields
    */
   const fetchMessages = useCallback(async () => {
     if (!resolvedChatroomId || !chatroomData) return;
@@ -184,44 +184,73 @@ export const useChatroom = (chatroomId: string | null) => {
       const messageList: ChatroomMessage[] = [];
       const messageCount = chatroomData.messageCount;
 
+      console.log(`📨 Fetching ${messageCount} messages from chatroom...`);
+
+      // 使用 dynamic field 獲取訊息
       for (let i = 0; i < messageCount; i++) {
         try {
-          const tx = new Transaction();
-          tx.moveCall({
-            target: `${PACKAGE_ID}::chatroom::get_message`,
-            arguments: [tx.object(resolvedChatroomId), tx.pure.u64(i)],
+          // 構造 MessageKey 結構
+          const messageFieldObj = await client.getDynamicFieldObject({
+            parentId: resolvedChatroomId,
+            name: {
+              type: `${PACKAGE_ID}::chatroom::MessageKey`,
+              value: {
+                index: i.toString(),
+              },
+            },
           });
 
-          const result = await client.devInspectTransactionBlock({
-            sender: "0x0",
-            transactionBlock: tx,
-          });
+          console.log(`Message ${i} FULL DATA:`, JSON.stringify(messageFieldObj.data?.content, null, 2));
 
-          if (result.results && result.results[0]?.returnValues) {
-            const returnValue = result.results[0].returnValues[0];
-            if (returnValue[0]) {
-              const messageData = returnValue[0] as any;
-              messageList.push({
+          if (messageFieldObj.data?.content?.dataType === "moveObject") {
+            const messageContent = messageFieldObj.data.content as any;
+            
+            console.log(`Message ${i} content.fields:`, JSON.stringify(messageContent.fields, null, 2));
+            
+            // Dynamic field 的結構是: Field<K, V> 其中 fields = { name: K, value: V }
+            const fieldValue = messageContent.fields?.value;
+            console.log(`Message ${i} field.value:`, JSON.stringify(fieldValue, null, 2));
+            
+            // Message 物件的 fields 才是實際資料
+            let messageFields;
+            if (fieldValue?.fields) {
+              messageFields = fieldValue.fields;
+            } else if (fieldValue) {
+              messageFields = fieldValue;
+            } else if (messageContent.fields) {
+              messageFields = messageContent.fields;
+            }
+
+            console.log(`Message ${i} final messageFields:`, JSON.stringify(messageFields, null, 2));
+
+            if (messageFields && messageFields.sender) {
+              const message = {
                 id: `${resolvedChatroomId}-${i}`,
-                sender: messageData.sender,
-                username: messageData.username,
-                content: messageData.content,
-                timestamp: new Date(Number(messageData.timestamp)),
-                isOwn: false,
-                profileImage: messageData.profile_image || messageData.profileImage || undefined,
-              });
+                sender: messageFields.sender,
+                username: messageFields.username,
+                content: messageFields.content,
+                timestamp: new Date(Number(messageFields.timestamp)),
+                isOwn: currentUserAddress ? messageFields.sender === currentUserAddress : false,
+                profileImage: messageFields.profile_image || undefined,
+              };
+              
+              console.log(`✅ Message ${i} parsed:`, message);
+              messageList.push(message);
+            } else {
+              console.warn(`⚠️ Message ${i} has no valid fields, messageFields:`, messageFields);
             }
           }
         } catch (err) {
-          console.error(`Error fetching message ${i}:`, err);
+          console.error(`❌ Error fetching message ${i}:`, err);
         }
       }
 
+      console.log(`📨 Total messages fetched: ${messageList.length}`);
       setMessages(messageList);
     } catch (err) {
       console.error("Fetch messages error:", err);
     }
-  }, [resolvedChatroomId, chatroomData, client]);
+  }, [resolvedChatroomId, chatroomData, client, currentUserAddress]);
 
   /**
    * Join chatroom

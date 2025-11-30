@@ -86,7 +86,7 @@ const Chatroom = () => {
     sendMessage: sendChatroomMessage,
     refresh,
     isLoading: isChatroomLoading,
-  } = useChatroom(chatroomId);
+  } = useChatroom(chatroomId, account?.address);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
