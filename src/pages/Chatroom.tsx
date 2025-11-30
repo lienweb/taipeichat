@@ -587,7 +587,7 @@ const Chatroom = () => {
       setIsSending(false);
     }
   };
-ㄔㄛ
+
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setInputMessage(e.target.value);
 
