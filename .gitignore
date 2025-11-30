@@ -24,3 +24,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment
+.env
+
+# Contract build artifacts
+contract/Move.lock
+contract/publish_output.txt

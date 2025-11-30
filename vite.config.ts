@@ -8,6 +8,14 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    proxy: {
+      '/sui-rpc': {
+        target: 'https://fullnode.testnet.sui.io',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/sui-rpc/, ''),
+        secure: false,
+      }
+    }
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

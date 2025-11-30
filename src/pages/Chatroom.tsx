@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AVATAR_COLORS } from "@/constant";
 import { useWallet } from "@/hooks/useWallet";
-import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
+import { ConnectButton, useCurrentAccount, useSignAndExecuteTransaction } from "@mysten/dapp-kit";
 import {
   ArrowRight,
   Check,
@@ -24,17 +24,22 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { Transaction } from "@mysten/sui/transactions";
+import { toast } from "sonner";
+import { suiClient as importedSuiClient } from "@/suiClient";
 
 interface Message {
   id: string;
   sender: string;
+  username: string;
   content: string;
-  timestamp: Date;
+  timestamp: number;
   isOwn: boolean;
   isRead?: boolean;
+  profileImage?: string;
 }
 
 interface OnlineUser {
@@ -43,23 +48,42 @@ interface OnlineUser {
   avatarColor: string;
 }
 
+// 合約配置
+const CONTRACT_CONFIG = {
+  PACKAGE_ID: "0x4e2a8c66fe62c78e2ff9005a5616e014bb34e3d7fd3a4b687403177e925d70d7",
+  PROFILE_REGISTRY_ID: "0xb3ddbc6182a5612196fd558eda0503482da21c14d3787b19a8b3354f64df3fbc",
+  PUBLISHER_ID: "0x5255709e7cdac8fc5355de61d22add14bb749adf3af6b47bfa0afd1e4ac668a9",
+  DISPLAY_ID: "0x86d8903b2d811a9e6352ec39fb2307193b0daffb99d9ab2a758655b383a56727",
+  UPGRADE_CAP_ID: "0x99b86cd90b062031f95e60205e91a3011170ff6edb122b0a8f57cf3d4253cafc",
+  CLOCK_ID: "0x6",
+};
+
+const PACKAGE_ID = CONTRACT_CONFIG.PACKAGE_ID;
+const CHATROOM_ID = "0xf745b325aef9528f0ddaad059e75a203d068de515690ba14f19b614bb2227012";
+const PROFILE_REGISTRY_ID = CONTRACT_CONFIG.PROFILE_REGISTRY_ID;
+
 const Chatroom = () => {
   const navigate = useNavigate();
   const account = useCurrentAccount();
   const { disconnect } = useWallet();
-  const [username, setUsername] = useState("");
-  const [usernameError, setUsernameError] = useState("");
-  const [avatarImage, setAvatarImage] = useState<string>("");
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [visitorsCount] = useState(Math.floor(Math.random() * 50) + 100); // Simulated visitors count (100-149)
+  const [isSending, setIsSending] = useState(false);
+  const [profileId, setProfileId] = useState<string>("");
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
+  const suiClient = importedSuiClient;
+
+  // 添加調試日誌到聊天框
+  const addDebugLog = (message: string) => {
+    console.log(message);
+    setDebugLogs(prev => [...prev, `[DEBUG ${new Date().toLocaleTimeString()}] ${message}`]);
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -75,195 +99,369 @@ const Chatroom = () => {
     }
   }, [messages]);
 
-  useEffect(() => {
-    const fetchUsers = async () => {
-      console.log("開始獲取聊天室參與者列表...");
-      try {
-        const suiClient = new SuiClient({ url: getFullnodeUrl("testnet") });
-        const packageId = "0x07f3d69c697449c9e8d06e9ef66de815fb50ef2468d860ba6202d193e80dd077";
-        
-        // ChatRoom Object ID
-        const chatRoomId = "0xe8e5611d8b66b90ec577fa6c91a54d2fbbd65e38752820a036b1446ff54f0a48";
-        
-        console.log("正在查詢 ChatRoom...", chatRoomId);
-        const response = await suiClient.getObject({
-          id: chatRoomId,
-          options: { showContent: true },
-        });
+  // 從合約讀取訊息
+  const fetchMessages = async () => {
+    if (!CHATROOM_ID) {
+      addDebugLog("❌ CHATROOM_ID 為空！");
+      return;
+    }
 
-        console.log("ChatRoom 回應:", response);
+    try {
+      const response = await suiClient.getObject({
+        id: CHATROOM_ID,
+        options: { showContent: true },
+      });
 
-        if (response.data?.content?.dataType === "moveObject" && response.data.content.fields) {
-          const fields = response.data.content.fields as any;
-          console.log("ChatRoom 欄位:", fields);
-          
-          // 取得參與者地址列表
-          const participants = fields.participants || [];
-          console.log("參與者地址:", participants);
-          
-          if (participants.length === 0) {
-            console.log("聊天室目前沒有參與者");
-            setOnlineUsers([]);
-            return;
+      if (response.data?.content?.dataType === "moveObject") {
+        const fields = response.data.content.fields as any;
+        const messageCount = parseInt(fields.message_count || "0");
+        
+        // 只顯示訊息總數
+        addDebugLog(`📊 訊息總數: ${messageCount}`);
+
+        const messagesData: Message[] = [];
+
+        // 讀取所有訊息（從動態欄位中）
+        for (let i = 0; i < messageCount; i++) {
+          try {
+            const messageResponse = await suiClient.getDynamicFieldObject({
+              parentId: CHATROOM_ID,
+              name: {
+                type: `${PACKAGE_ID}::chatroom::MessageKey`,
+                value: { index: `${i}` }
+              },
+            });
+
+            if (messageResponse.data?.content?.dataType === "moveObject") {
+              const msgFields = messageResponse.data.content.fields as any;
+              const value = msgFields.value;
+              
+              // 只顯示有訊息的
+              addDebugLog(`💬 訊息 ${i}: ${value.content}`);
+              
+              messagesData.push({
+                id: i.toString(),
+                sender: value.sender,
+                username: value.username || `User_${value.sender.slice(0, 6)}`,
+                content: value.content,
+                timestamp: parseInt(value.timestamp),
+                isOwn: value.sender === account?.address,
+                profileImage: value.profile_image || "",
+              });
+            }
+          } catch (error: any) {
+            // 不顯示讀取失敗的訊息
+            console.error(`讀取訊息 ${i} 失敗:`, error);
           }
+        }
+
+        setMessages(messagesData);
+      }
+    } catch (error: any) {
+      addDebugLog(`❌ 讀取訊息失敗: ${error.message}`);
+    }
+  };
+
+  // 檢查並加入聊天室
+  const checkAndJoinChatroom = async () => {
+    if (!account?.address) return;
+
+    try {
+      console.log("檢查用戶是否已加入聊天室...");
+      
+      const response = await suiClient.getObject({
+        id: CHATROOM_ID,
+        options: { showContent: true },
+      });
+
+      if (response.data?.content?.dataType === "moveObject") {
+        const fields = response.data.content.fields as any;
+        const participants = fields.participants || [];
+        
+        // 檢查用戶是否已經是參與者
+        const isParticipant = participants.includes(account.address);
+        
+        if (!isParticipant) {
+          console.log("用戶尚未加入聊天室，準備加入...");
           
-          // 獲取每個參與者的 Profile 資訊
-          const participantProfiles = fields.participant_profiles?.fields || {};
+          // 獲取用戶的 Profile
+          const registryResponse = await suiClient.getObject({
+            id: PROFILE_REGISTRY_ID,
+            options: { showContent: true },
+          });
+
+          if (registryResponse.data?.content?.dataType === "moveObject") {
+            const registryFields = registryResponse.data.content.fields as any;
+            const profiles = registryFields.profiles?.fields?.contents || [];
+            
+            let userProfileId = "";
+            for (const item of profiles) {
+              if (item.key === account.address) {
+                userProfileId = item.value;
+                setProfileId(userProfileId);
+                break;
+              }
+            }
+
+            if (userProfileId) {
+              // 建立加入聊天室的交易
+              const tx = new Transaction();
+              
+              tx.moveCall({
+                target: `${PACKAGE_ID}::chatroom::join_chatroom`,
+                arguments: [
+                  tx.object(CHATROOM_ID),
+                  tx.object(PROFILE_REGISTRY_ID),
+                  tx.object(userProfileId),
+                ],
+              });
+
+              // 執行交易
+              signAndExecuteTransaction(
+                {
+                  transaction: tx,
+                },
+                {
+                  onSuccess: (result) => {
+                    console.log("成功加入聊天室:", result);
+                    toast.success("已加入聊天室");
+                    // 重新獲取參與者列表
+                    setTimeout(() => {
+                      fetchUsers();
+                    }, 1000);
+                  },
+                  onError: (error) => {
+                    console.error("加入聊天室失敗:", error);
+                    toast.error("加入聊天室失敗");
+                  },
+                }
+              );
+            } else {
+              console.log("未找到用戶 Profile，請先創建 Profile");
+              toast.error("請先在個人資料頁面創建您的 Profile");
+            }
+          }
+        } else {
+          console.log("用戶已經是聊天室參與者");
           
-          const users = await Promise.all(
-            participants.map(async (address: string) => {
-              try {
-                // 從 participant_profiles Table 取得 Profile ID
-                const profileId = participantProfiles[address];
-                
-                if (!profileId) {
-                  console.warn(`未找到地址 ${address} 的 Profile ID`);
-                  return {
-                    name: `User_${address.slice(0, 6)}`,
-                    address: address,
-                    avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
-                  };
-                }
-                
-                // 用 Profile ID 讀取 Profile 物件
-                const profileResponse = await suiClient.getObject({
-                  id: profileId,
-                  options: { showContent: true },
-                });
-                
-                if (profileResponse.data?.content?.dataType === "moveObject") {
-                  const profileFields = profileResponse.data.content.fields as any;
-                  
-                  return {
-                    name: profileFields?.username || `User_${address.slice(0, 6)}`,
-                    address: address,
-                    avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
-                  };
-                }
+          // 獲取用戶的 Profile ID
+          const participantProfiles = fields.participant_profiles?.fields?.contents || [];
+          for (const item of participantProfiles) {
+            if (item.key === account.address) {
+              setProfileId(item.value);
+              break;
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("檢查聊天室狀態失敗:", error);
+    }
+  };
+
+  // 獲取所有註冊用戶（從 ProfileRegistry）
+  const fetchUsers = async () => {
+    console.log("=== 開始獲取所有註冊用戶 ===");
+    console.log("PROFILE_REGISTRY_ID:", PROFILE_REGISTRY_ID);
+    try {
+      const response = await suiClient.getObject({
+        id: PROFILE_REGISTRY_ID,
+        options: { showContent: true },
+      });
+
+      console.log("ProfileRegistry 回應:", response);
+
+      if (response.data?.content?.dataType === "moveObject" && response.data.content.fields) {
+        const fields = response.data.content.fields as any;
+        console.log("ProfileRegistry 欄位:", fields);
+        
+        // 從 profiles Table 獲取所有 Profile
+        const profilesTable = fields.profiles?.fields?.contents || [];
+        console.log("註冊用戶數:", profilesTable.length);
+        
+        if (profilesTable.length === 0) {
+          console.log("目前沒有註冊用戶");
+          setOnlineUsers([]);
+          return;
+        }
+        
+        // 獲取每個用戶的 Profile 資訊
+        const users = await Promise.all(
+          profilesTable.map(async (item: any, index: number) => {
+            try {
+              const address = item.key;
+              const profileId = item.value;
+              
+              // 讀取 Profile 物件
+              const profileResponse = await suiClient.getObject({
+                id: profileId,
+                options: { showContent: true },
+              });
+              
+              if (profileResponse.data?.content?.dataType === "moveObject") {
+                const profileFields = profileResponse.data.content.fields as any;
                 
                 return {
-                  name: `User_${address.slice(0, 6)}`,
+                  name: profileFields?.username || `User_${address.slice(0, 6)}`,
                   address: address,
-                  avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
-                };
-              } catch (error) {
-                console.error(`獲取地址 ${address} 的 Profile 失敗:`, error);
-                return {
-                  name: `User_${address.slice(0, 6)}`,
-                  address: address,
-                  avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
+                  avatarColor: AVATAR_COLORS[index % AVATAR_COLORS.length]
                 };
               }
-            })
-          );
-          
-          console.log("參與者列表已更新:", users);
-          setOnlineUsers(users);
-        } else {
-          console.error("ChatRoom does not exist or has invalid data.");
-          setOnlineUsers([]);
-        }
-      } catch (error) {
-        console.error("獲取參與者失敗:", error);
+              
+              return {
+                name: `User_${address.slice(0, 6)}`,
+                address: address,
+                avatarColor: AVATAR_COLORS[index % AVATAR_COLORS.length]
+              };
+            } catch (error) {
+              console.error(`獲取 Profile 失敗:`, error);
+              return null;
+            }
+          })
+        );
+        
+        // 過濾掉失敗的項目
+        const validUsers = users.filter(user => user !== null) as OnlineUser[];
+        console.log("用戶列表已更新:", validUsers);
+        setOnlineUsers(validUsers);
+      } else {
+        console.error("ProfileRegistry does not exist or has invalid data.");
         setOnlineUsers([]);
       }
-    };
+    } catch (error) {
+      console.error("獲取用戶列表失敗:", error);
+      setOnlineUsers([]);
+    }
+  };
 
+  // 初始化：檢查並加入聊天室，然後獲取數據
+  useEffect(() => {
+    if (account?.address) {
+      checkAndJoinChatroom();
+    }
+  }, [account?.address]);
+
+  // 初始化：立即獲取用戶列表和訊息（不需要錢包連接）
+  useEffect(() => {
     fetchUsers();
+    fetchMessages();
   }, []);
 
-  const validateUsername = (value: string): boolean => {
-    if (value.trim().length < 3) {
-      setUsernameError("Username must be at least 3 characters");
-      return false;
-    }
-    if (value.trim().length > 20) {
-      setUsernameError("Username cannot exceed 20 characters");
-      return false;
-    }
-    setUsernameError("");
-    return true;
-  };
+  // 定期更新訊息和用戶列表
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchMessages();
+      fetchUsers();
+    }, 5000); // 每5秒更新一次
 
-  const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setUsername(value);
-    if (value.trim().length > 0) {
-      validateUsername(value);
-    } else {
-      setUsernameError("");
-    }
-  };
+    return () => clearInterval(interval);
+  }, [account?.address]);
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      alert("Please upload an image file");
-      return;
-    }
-
-    if (file.size > 2 * 1024 * 1024) {
-      alert("Image size must be less than 2MB");
-      return;
-    }
-
-    setIsUploadingAvatar(true);
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setTimeout(() => {
-        setAvatarImage(reader.result as string);
-        setIsUploadingAvatar(false);
-      }, 3000);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleSendMessage = () => {
-    if (!inputMessage.trim() || !account.address) return;
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || isSending) return;
 
     setIsTyping(false);
+    
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
 
-    const newMessage: Message = {
+    // 先在本地顯示訊息（樂觀 UI 更新）
+    const tempMessage: Message = {
       id: Date.now().toString(),
-      sender: account.address,
+      sender: account?.address || "local",
+      username: "You",
       content: inputMessage,
-      timestamp: new Date(),
+      timestamp: Date.now(),
       isOwn: true,
-      isRead: false,
+      profileImage: "",
     };
-
-    setMessages((prev) => [...prev, newMessage]);
+    
+    setMessages((prev) => [...prev, tempMessage]);
+    const messageToSend = inputMessage;
     setInputMessage("");
 
-    // 模擬訊息發送後立即標記為已讀（延遲 1.5 秒）
-    setTimeout(() => {
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === newMessage.id ? { ...msg, isRead: true } : msg,
-        ),
+    // 如果沒有連接錢包，只顯示本地訊息
+    if (!account?.address) {
+      toast.info("訊息僅在本地顯示（未連接錢包）");
+      return;
+    }
+
+    // 如果有連接錢包，嘗試發送到合約
+    setIsSending(true);
+
+    try {
+      // 先獲取用戶的 Profile ID
+      let userProfileId = profileId;
+      
+      if (!userProfileId) {
+        const roomResponse = await suiClient.getObject({
+          id: CHATROOM_ID,
+          options: { showContent: true },
+        });
+
+        if (roomResponse.data?.content?.dataType === "moveObject") {
+          const fields = roomResponse.data.content.fields as any;
+          const participantProfiles = fields.participant_profiles?.fields?.contents || [];
+          
+          // 尋找當前用戶的 Profile ID
+          for (const item of participantProfiles) {
+            if (item.key === account.address) {
+              userProfileId = item.value;
+              setProfileId(userProfileId);
+              break;
+            }
+          }
+        }
+      }
+
+      if (!userProfileId) {
+        toast.warning("訊息僅在本地顯示（尚未加入聊天室）");
+        setIsSending(false);
+        return;
+      }
+
+      // 建立交易
+      const tx = new Transaction();
+      
+      tx.moveCall({
+        target: `${PACKAGE_ID}::chatroom::send_message`,
+        arguments: [
+          tx.object(CHATROOM_ID),
+          tx.object(PROFILE_REGISTRY_ID),
+          tx.object(userProfileId),
+          tx.pure.string(messageToSend),
+          tx.object("0x6"), // Clock object
+        ],
+      });
+
+      // 執行交易
+      signAndExecuteTransaction(
+        {
+          transaction: tx,
+        },
+        {
+          onSuccess: (result) => {
+            console.log("訊息發送成功:", result);
+            toast.success("訊息已上鏈");
+            // 立即更新訊息列表
+            setTimeout(() => fetchMessages(), 1000);
+          },
+          onError: (error) => {
+            console.error("訊息發送失敗:", error);
+            toast.error("上鏈失敗，訊息僅在本地顯示");
+          },
+        }
       );
-    }, 1500);
-
-    setTimeout(() => {
-      const echoMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        sender: "Echo Bot",
-        content: `Received: ${inputMessage}`,
-        timestamp: new Date(),
-        isOwn: false,
-        isRead: false,
-      };
-      setMessages((prev) => [...prev, echoMessage]);
-    }, 1000);
+    } catch (error) {
+      console.error("發送訊息錯誤:", error);
+      toast.error("上鏈失敗，訊息僅在本地顯示");
+    } finally {
+      setIsSending(false);
+    }
   };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+ㄔㄛ
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setInputMessage(e.target.value);
 
     if (e.target.value.trim()) {
@@ -273,7 +471,7 @@ const Chatroom = () => {
         clearTimeout(typingTimeoutRef.current);
       }
 
-      typingTimeoutRef.current = setTimeout(() => {
+      typingTimeoutRef.current = window.setTimeout(() => {
         setIsTyping(false);
       }, 1000);
     } else {
@@ -301,7 +499,9 @@ const Chatroom = () => {
               <h1 className="text-xl font-bold text-foreground">
                 Web3 Chatroom
               </h1>
-              <p className="text-xs text-muted-foreground">{username}</p>
+              <p className="text-xs text-muted-foreground">
+                {account?.address ? `${account.address.slice(0, 6)}...${account.address.slice(-4)}` : 'Not connected'}
+              </p>
             </div>
           </div>
 
@@ -314,16 +514,11 @@ const Chatroom = () => {
                 <Avatar className="h-10 w-10">
                   <AvatarFallback
                     style={{
-                      backgroundColor:
-                        AVATAR_COLORS[
-                          parseInt(
-                            localStorage.getItem("selectedAvatar") || "1",
-                          ) - 1
-                        ],
+                      backgroundColor: AVATAR_COLORS[0],
                     }}
                     className="text-white font-semibold"
                   >
-                    {username.charAt(0).toUpperCase()}
+                    {account?.address ? account.address.charAt(2).toUpperCase() : 'K'}
                   </AvatarFallback>
                 </Avatar>
               </Button>
@@ -355,44 +550,16 @@ const Chatroom = () => {
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-primary" />
                 <h2 className="font-semibold text-foreground">
-                  Online Users ({onlineUsers.length + 1})
+                  Online Users ({onlineUsers.length})
                 </h2>
               </div>
+              <p className="text-xs text-muted-foreground">
+                All Visitors: {onlineUsers.length}
+              </p>
             </div>
-            <ScrollArea className="h-[calc(100%-60px)]">
+            <ScrollArea className="h-[calc(100%-80px)]">
               <div className="space-y-3">
-                {/* 當前用戶 */}
-                <div className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors">
-                  <div className="relative">
-                    <Avatar className="h-10 w-10">
-                      <AvatarFallback
-                        style={{
-                          backgroundColor:
-                            AVATAR_COLORS[
-                              parseInt(
-                                localStorage.getItem("selectedAvatar") || "1",
-                              ) - 1
-                            ],
-                        }}
-                        className="text-white font-semibold"
-                      >
-                        {username.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-card" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-foreground truncate">
-                      {username}
-                    </div>
-                    {/* <div className="text-xs text-muted-foreground font-mono">
-                      {account.address?.slice(0, 6)}...
-                      {account.address?.slice(-4)}
-                    </div> */}
-                  </div>
-                </div>
-
-                {/* 其他用戶 */}
+                {/* 所有註冊用戶 */}
                 {onlineUsers.map((user, index) => (
                   <div
                     key={index}
@@ -413,8 +580,8 @@ const Chatroom = () => {
                       <div className="text-sm font-medium text-foreground truncate">
                         {user.name}
                       </div>
-                      <div className="text-xs text-muted-foreground font-mono">
-                        {user.address}
+                      <div className="text-xs text-muted-foreground font-mono truncate">
+                        {user.address.slice(0, 6)}...{user.address.slice(-4)}
                       </div>
                     </div>
                   </div>
@@ -461,12 +628,10 @@ const Chatroom = () => {
                         <span className="text-xs opacity-70">
                           {msg.isOwn
                             ? "You"
-                            : msg.sender === "System"
-                              ? "System"
-                              : `${msg.sender.slice(0, 6)}...${msg.sender.slice(-4)}`}
+                            : msg.username || `${msg.sender.slice(0, 6)}...${msg.sender.slice(-4)}`}
                         </span>
                         <span className="text-xs opacity-50">
-                          {msg.timestamp.toLocaleTimeString("en-US", {
+                          {new Date(msg.timestamp).toLocaleTimeString("en-US", {
                             hour: "2-digit",
                             minute: "2-digit",
                           })}
@@ -505,21 +670,28 @@ const Chatroom = () => {
                       <Avatar className="h-10 w-10 flex-shrink-0">
                         <AvatarFallback
                           style={{
-                            backgroundColor:
-                              AVATAR_COLORS[
-                                parseInt(
-                                  localStorage.getItem("selectedAvatar") || "1",
-                                ) - 1
-                              ],
+                            backgroundColor: AVATAR_COLORS[0],
                           }}
                           className="text-white font-semibold text-sm"
                         >
-                          {username.charAt(0).toUpperCase()}
+                          {msg.username.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                     )}
                   </div>
                 ))}
+                
+                {/* 顯示調試日誌 */}
+                {debugLogs.map((log, index) => (
+                  <div key={`debug-${index}`} className="flex justify-start mb-2">
+                    <div className="max-w-[90%] rounded-lg p-3 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">
+                      <p className="text-xs font-mono text-gray-800 dark:text-gray-200 break-words whitespace-pre-wrap">
+                        {log}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                
                 {isTyping && (
                   <div className="flex justify-start animate-fade-in">
                     <div className="max-w-[70%] rounded-2xl p-4 bg-muted text-foreground">
@@ -557,18 +729,16 @@ const Chatroom = () => {
                   onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                   placeholder="Type a message..."
                   className="flex-1 bg-background border-input focus:border-primary"
+                  disabled={isSending}
                 />
                 <Button
                   onClick={handleSendMessage}
-                  disabled={!inputMessage.trim()}
+                  disabled={!inputMessage.trim() || isSending}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground"
                 >
                   <Send className="h-4 w-4" />
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground mt-2 text-center">
-                This is a frontend demo - messages are displayed locally only
-              </p>
             </div>
           </Card>
         </div>
