@@ -16,6 +16,8 @@ export const AVATAR_COLORS = [
 
 export const PUBLISHER_TESTNET =
   "https://publisher.walrus-testnet.walrus.space";
+export const AGGREGATOR_TESTNET =
+  "https://aggregator.walrus-testnet.walrus.space";
 
 export const SUISCAN_URL_TESTNET = `https://suiscan.xyz/testnet`;
 

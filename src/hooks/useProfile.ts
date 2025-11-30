@@ -9,14 +9,7 @@ import {
   PROFILE_REGISTRY_ID,
 } from "@/helpers/profile";
 import { SuiObjectResponse } from "@mysten/sui/client";
-
-interface ProfileData {
-  username: string;
-  bio: string;
-  imageBlobId: string;
-  owner: string;
-  createdAt: string;
-}
+import { ProfileData } from "@/type";
 
 export const useProfile = () => {
   const client = useSuiClient();
@@ -56,7 +49,8 @@ export const useProfile = () => {
 
       // Find the newly created Profile object from objectChanges
       const createdProfile = txResponse.objectChanges?.find(
-        (change) => change.type === "created" && change.objectType.includes("Profile")
+        (change) =>
+          change.type === "created" && change.objectType.includes("Profile"),
       );
 
       // 提取 Profile ID
@@ -86,10 +80,7 @@ export const useProfile = () => {
   /**
    * Update Profile image
    */
-  const updateProfileImage = async (
-    profileId: string,
-    imageBlobId: string,
-  ) => {
+  const updateProfileImage = async (profileId: string, imageBlobId: string) => {
     try {
       setIsLoading(true);
       setError(null);
@@ -170,10 +161,7 @@ export const useProfile = () => {
       const tx = new Transaction();
       tx.moveCall({
         target: `${PACKAGE_ID}::profile::has_profile`,
-        arguments: [
-          tx.object(PROFILE_REGISTRY_ID),
-          tx.pure.address(address),
-        ],
+        arguments: [tx.object(PROFILE_REGISTRY_ID), tx.pure.address(address)],
       });
 
       const result = await client.devInspectTransactionBlock({
@@ -197,7 +185,9 @@ export const useProfile = () => {
   /**
    * Get the user's Profile object
    */
-  const getUserProfile = async (address: string): Promise<ProfileData | null> => {
+  const getUserProfile = async (
+    address: string,
+  ): Promise<ProfileData | null> => {
     try {
       // 查詢用戶擁有的所有對象
       const objects = await client.getOwnedObjects({

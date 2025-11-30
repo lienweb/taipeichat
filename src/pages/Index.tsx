@@ -15,6 +15,7 @@ import { AVATAR_COLORS } from "@/constant";
 import { parseBlobInfo, uploadWalrus } from "@/helpers/uploadWalrus";
 import { useProfile } from "@/hooks/useProfile";
 import {
+  ConnectButton,
   ConnectModal,
   useCurrentAccount,
   useCurrentWallet,
@@ -188,7 +189,7 @@ const Index = () => {
       const result = await mintProfile(
         username,
         "TaipeiChat user", // 預設 bio，可以之後修改
-        avatar.blobId
+        avatar.blobId,
       );
 
       if (result.success) {
@@ -281,6 +282,8 @@ const Index = () => {
       }
     }
   };
+  // TODO: login userflow
+  const handleLoginBtn = () => {};
 
   if (isLoading) {
     return <PageLoader />;
@@ -291,6 +294,7 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-md mx-auto animate-fade-slide-in ">
+          <Button onClick={handleLoginBtn}>Login</Button>
           <RegistrationStepper currentStep={1} />
 
           <Card className="w-full p-8 bg-card border shadow-sm">
@@ -304,30 +308,13 @@ const Index = () => {
                   Connect your wallet to get started
                 </p>
               </div>
-              {account ? (
-                <Button
-                  className="w-full h-12 border-2 border-primary text-white"
-                  onClick={() => setRegistrationStep("username")}
-                >
-                  address: {account.address.slice(0, 6)}...
-                  {account.address.slice(-4)}, click to continue
-                </Button>
-              ) : (
-                <ConnectModal
-                  trigger={
-                    <Button
-                      // onClick={handleConnectBtnClick}
-                      disabled={isConnected}
-                      className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground transition-all"
-                    >
-                      <Wallet className="mr-2 h-5 w-5" />
-                      {isConnected ? "Connecting..." : "Connect Wallet"}
-                    </Button>
-                  }
-                  open={open}
-                  onOpenChange={(isOpen) => setOpen(isOpen)}
-                />
-              )}
+              <ConnectButton />
+              <Button
+                className="w-full h-12 border-2 border-primary text-white"
+                onClick={() => setRegistrationStep("username")}
+              >
+                click to continue
+              </Button>
             </div>
           </Card>
         </div>
@@ -339,6 +326,7 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-md mx-auto animate-fade-slide-in">
+          <Button onClick={handleLoginBtn}>Login</Button>
           <RegistrationStepper currentStep={2} />
 
           <Card className="w-full p-8 bg-card border shadow-sm">
@@ -455,6 +443,7 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-md mx-auto animate-fade-slide-in">
+          <Button onClick={handleLoginBtn}>Login</Button>
           <RegistrationStepper currentStep={3} />
 
           <Card className="w-full p-8 bg-card border shadow-sm">
