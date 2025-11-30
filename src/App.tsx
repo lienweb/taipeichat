@@ -24,7 +24,7 @@ const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <SuiClientProvider networks={networkConfig} defaultNetwork="localnet">
+    <SuiClientProvider networks={networkConfig} defaultNetwork="testnet">
       <WalletProvider>
         <TooltipProvider>
           <Toaster />
