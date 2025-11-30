@@ -212,6 +212,7 @@ export const useProfile = () => {
       if (content && content.dataType === "moveObject") {
         const fields = content.fields as any;
         return {
+          id: profileObj.data?.objectId,
           username: fields.username,
           bio: fields.bio,
           imageBlobId: fields.image_blob_id,

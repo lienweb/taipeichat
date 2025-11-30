@@ -115,28 +115,43 @@ const Chatroom = () => {
   useEffect(() => {
     const joinChatroom = async () => {
       if (!chatroomId || !profileId || !account?.address || hasJoinedChatroom) {
+        console.log("Skip joining chatroom:", {
+          hasChatroomId: !!chatroomId,
+          hasProfileId: !!profileId,
+          hasAccount: !!account?.address,
+          alreadyJoined: hasJoinedChatroom
+        });
         return;
       }
 
+      console.log("Attempting to join chatroom...");
+      setHasJoinedChatroom(true);
+
       try {
         const tx = createJoinChatroomTransaction(chatroomId, profileId);
+        tx.setGasBudget(10000000);
         const result = await signAndExecuteTransaction({ transaction: tx });
         
         console.log("✅ Joined chatroom successfully:", result);
-        setHasJoinedChatroom(true);
         
         await fetchUsers();
         await refresh();
-      } catch (error) {
+      } catch (error: any) {
         console.error("❌ Failed to join chatroom:", error);
-        setHasJoinedChatroom(true);
+        
+        if (error?.message?.includes("ENotParticipant") || error?.message?.includes("already")) {
+          console.log("Already a participant or duplicate join attempt");
+        } else {
+          console.error("Join chatroom error details:", error);
+        }
+        
         await fetchUsers();
         await refresh();
       }
     };
 
     joinChatroom();
-  }, [chatroomId, profileId, account, hasJoinedChatroom]);
+  }, [chatroomId, profileId, account?.address, hasJoinedChatroom]);
 
   const fetchUsers = async () => {
     if (!chatroomId) return;
@@ -319,12 +334,10 @@ const Chatroom = () => {
         await refresh();
       } else {
         console.error("❌ Failed to send message:", result.error);
-        alert(`Failed to send message: ${result.error}`);
         setInputMessage(content);
       }
     } catch (error) {
       console.error("❌ Send message error:", error);
-      alert("Failed to send message. Please try again.");
       setInputMessage(content);
     }
   };

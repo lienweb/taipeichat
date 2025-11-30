@@ -19,37 +19,66 @@ import { toast } from "@/hooks/use-toast";
 import { useCurrentAccount } from "@mysten/dapp-kit";
 import { useProfile } from "@/hooks/useProfile";
 import downloadWalrus from "@/helpers/downloadWalrus";
+import { uploadWalrus, parseBlobInfo } from "@/helpers/uploadWalrus";
 import { ProfileData } from "@/type";
 
 const Profile = () => {
   const account = useCurrentAccount();
   const navigate = useNavigate();
-  const [user, setUser] = useState<ProfileData>(null);
-  const [imageUrl, setImageUrl] = useState<string>(null);
+  const [user, setUser] = useState<ProfileData | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [newImageFile, setNewImageFile] = useState<ArrayBuffer | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [hasUploadedNewImage, setHasUploadedNewImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { getUserProfile, updateProfileImage } = useProfile();
 
   useEffect(() => {
+    let isMounted = true;
+    
     const fetchUserProfile = async () => {
+      if (!account?.address) return;
+      
       const profile = await getUserProfile(account.address);
-      setUser(profile);
+      if (!profile) {
+        if (isMounted) {
+          toast({
+            title: "Profile Not Found",
+            description: "Please create a profile first",
+            variant: "destructive",
+          });
+          navigate("/");
+        }
+        return;
+      }
+      
+      if (isMounted) {
+        setUser(profile);
+        setProfileId(profile.id || null);
+      }
 
+      // 下載並顯示 Walrus 圖片
       downloadWalrus(profile.imageBlobId).then((data) => {
         console.log("data profile:", data);
 
-        if (data) {
+        if (data && isMounted) {
           const blob = new Blob([data], { type: "image/png" });
           const url = URL.createObjectURL(blob);
           setImageUrl(url);
         }
       });
     };
+    
     fetchUserProfile();
-  }, []);
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [account?.address]);
 
-  // TODO: update image move call
+  // 處理圖片上傳
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -76,37 +105,97 @@ const Profile = () => {
 
     setIsUploading(true);
 
-    // Read file as base64
+    // Read file as ArrayBuffer for Walrus upload
     const reader = new FileReader();
     reader.onloadend = () => {
-      // Simulate 3 second upload delay
-      setTimeout(() => {
-        const base64String = reader.result as string;
-        setImageUrl(base64String);
-        setIsUploading(false);
-        setHasUploadedNewImage(true);
+      const arrayBuffer = reader.result as ArrayBuffer;
+      setNewImageFile(arrayBuffer);
+      
+      // Also create preview URL
+      const blob = new Blob([arrayBuffer], { type: file.type });
+      const previewUrl = URL.createObjectURL(blob);
+      setImageUrl(previewUrl);
+      setIsUploading(false);
+      setHasUploadedNewImage(true);
 
-        toast({
-          title: "Upload Successful",
-          description: "Your avatar has been uploaded",
-        });
-      }, 3000);
+      toast({
+        title: "Image Selected",
+        description: "Click 'Save Changes' to update your profile",
+      });
     };
-    reader.readAsDataURL(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const handleSaveChanges = async () => {
-    if (!hasUploadedNewImage) return; // No new image to handleSaveC
-    // TODO: 只有 profile name 沒有 profile id
-    // const result = await updateProfileImage(user.);
-    // if (result.success) {
-    //   toast({
-    //     title: "Profile Updated",
-    //     description: "Your profile image has been updated successfully.",
-    //   });
-    //   setHasUploadedNewImage(false);
-    //   setImageUrl(null);
-    // }
+    if (!hasUploadedNewImage || !newImageFile || !profileId) {
+      toast({
+        title: "No Changes",
+        description: "Please upload a new image first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      // Step 1: Upload image to Walrus
+      toast({
+        title: "Uploading to Walrus",
+        description: "Please wait...",
+      });
+
+      const uploadResult = await uploadWalrus(newImageFile);
+      
+      if (uploadResult.status !== "ok" || !uploadResult.data) {
+        throw new Error("Failed to upload image to Walrus");
+      }
+
+      // Parse blob info to get blob ID
+      const mediaType = "image/png"; // You can detect this from the file type
+      const parsedInfo = parseBlobInfo(uploadResult.data, mediaType);
+      
+      if (parsedInfo.status !== "ok" || !parsedInfo.info) {
+        throw new Error("Failed to parse blob info");
+      }
+
+      const blobId = parsedInfo.info.blobId;
+      console.log("Walrus blob ID:", blobId);
+
+      // Step 2: Update profile on blockchain
+      toast({
+        title: "Updating Profile",
+        description: "Waiting for transaction confirmation...",
+      });
+
+      const result = await updateProfileImage(profileId, blobId);
+      
+      if (result.success) {
+        toast({
+          title: "Profile Updated",
+          description: "Your profile image has been updated successfully.",
+        });
+        setHasUploadedNewImage(false);
+        setNewImageFile(null);
+        
+        // Refresh profile data
+        if (account?.address) {
+          const updatedProfile = await getUserProfile(account.address);
+          setUser(updatedProfile);
+        }
+      } else {
+        throw new Error(result.error || "Failed to update profile");
+      }
+    } catch (error: any) {
+      console.error("Save changes error:", error);
+      toast({
+        title: "Update Failed",
+        description: error.message || "Failed to update profile image",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -140,21 +229,20 @@ const Profile = () => {
               {/* Current Avatar Preview */}
               <div className="flex flex-col items-center space-y-4">
                 <Avatar className="h-24 w-24 border-4 border-primary/20">
-                  {/* TODO: walrus image pull and show data */}
-                  {user.imageBlobId ? (
+                  {imageUrl ? (
                     <AvatarImage src={imageUrl} alt={user?.username} />
                   ) : (
                     <AvatarFallback className="bg-primary text-primary-foreground text-3xl font-bold">
-                      {user?.username.charAt(0).toUpperCase()}
+                      {user?.username?.charAt(0).toUpperCase() || "U"}
                     </AvatarFallback>
                   )}
                 </Avatar>
                 <div className="text-center">
                   <h2 className="text-xl font-semibold text-foreground">
-                    {user?.username || "Unkonwn User"}
+                    {user?.username || "Unknown User"}
                   </h2>
                   <p className="text-sm text-muted-foreground font-mono mt-1">
-                    {account && account.address}
+                    {account?.address}
                   </p>
                 </div>
               </div>
@@ -272,11 +360,17 @@ const Profile = () => {
               <div className="flex gap-3 pt-4">
                 <Button
                   onClick={handleSaveChanges}
-                  // update image
-                  disabled={isUploading || !hasUploadedNewImage}
+                  disabled={isUploading || isSaving || !hasUploadedNewImage}
                   className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground disabled:opacity-50"
                 >
-                  Save Changes
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
                 </Button>
               </div>
             </div>

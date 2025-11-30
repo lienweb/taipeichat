@@ -6,6 +6,7 @@ export type WalrusService = {
 };
 
 export interface ProfileData {
+  id?: string;
   username: string;
   bio: string;
   imageBlobId: string;

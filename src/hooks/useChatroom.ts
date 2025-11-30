@@ -239,6 +239,9 @@ export const useChatroom = (chatroomId: string | null) => {
       setError(null);
 
       const tx = createJoinChatroomTransaction(resolvedChatroomId, profileId);
+      
+      // 設置 gas budget
+      tx.setGasBudget(10000000);
 
       const result = await signAndExecuteTransaction({
         transaction: tx,
@@ -288,7 +291,23 @@ export const useChatroom = (chatroomId: string | null) => {
       setIsLoading(true);
       setError(null);
 
+      // 檢查用戶是否已加入聊天室
+      const isParticipant = await checkIsParticipant(address);
+      if (!isParticipant) {
+        console.log("User is not a participant, attempting to join...");
+        const joinResult = await joinChatroom(profileId, address);
+        if (!joinResult.success) {
+          return {
+            success: false,
+            error: "Please join the chatroom first before sending messages",
+          };
+        }
+      }
+
       const tx = createSendMessageTransaction(resolvedChatroomId, profileId, content);
+      
+      // 設置 gas budget
+      tx.setGasBudget(10000000);
 
       const result = await signAndExecuteTransaction({
         transaction: tx,
@@ -309,7 +328,13 @@ export const useChatroom = (chatroomId: string | null) => {
       };
     } catch (err: any) {
       console.error("Send message error:", err);
-      const errorMsg = err.message || "Failed to send message";
+      let errorMsg = err.message || "Failed to send message";
+      
+      // 解析更具體的錯誤信息
+      if (err.message?.includes("MoveAbort") || err.message?.includes("0")) {
+        errorMsg = "You must join the chatroom before sending messages";
+      }
+      
       setError(errorMsg);
       return {
         success: false,
