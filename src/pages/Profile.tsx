@@ -35,12 +35,20 @@ const Profile = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { getUserProfile, updateProfileImage } = useProfile();
 
+  // 檢查用戶是否已連接錢包
+  useEffect(() => {
+    if (!account?.address) {
+      console.warn("❌ No wallet connected, redirecting to home...");
+      navigate("/", { replace: true });
+    }
+  }, [account?.address, navigate]);
+
   useEffect(() => {
     let isMounted = true;
-    
+
     const fetchUserProfile = async () => {
       if (!account?.address) return;
-      
+
       const profile = await getUserProfile(account.address);
       if (!profile) {
         if (isMounted) {
@@ -53,7 +61,7 @@ const Profile = () => {
         }
         return;
       }
-      
+
       if (isMounted) {
         setUser(profile);
         setProfileId(profile.id || null);
@@ -70,9 +78,9 @@ const Profile = () => {
         }
       });
     };
-    
+
     fetchUserProfile();
-    
+
     return () => {
       isMounted = false;
     };
@@ -110,7 +118,7 @@ const Profile = () => {
     reader.onloadend = () => {
       const arrayBuffer = reader.result as ArrayBuffer;
       setNewImageFile(arrayBuffer);
-      
+
       // Also create preview URL
       const blob = new Blob([arrayBuffer], { type: file.type });
       const previewUrl = URL.createObjectURL(blob);
@@ -146,7 +154,7 @@ const Profile = () => {
       });
 
       const uploadResult = await uploadWalrus(newImageFile);
-      
+
       if (uploadResult.status !== "ok" || !uploadResult.data) {
         throw new Error("Failed to upload image to Walrus");
       }
@@ -154,7 +162,7 @@ const Profile = () => {
       // Parse blob info to get blob ID
       const mediaType = "image/png"; // You can detect this from the file type
       const parsedInfo = parseBlobInfo(uploadResult.data, mediaType);
-      
+
       if (parsedInfo.status !== "ok" || !parsedInfo.info) {
         throw new Error("Failed to parse blob info");
       }
@@ -169,7 +177,7 @@ const Profile = () => {
       });
 
       const result = await updateProfileImage(profileId, blobId);
-      
+
       if (result.success) {
         toast({
           title: "Profile Updated",
@@ -177,7 +185,7 @@ const Profile = () => {
         });
         setHasUploadedNewImage(false);
         setNewImageFile(null);
-        
+
         // Refresh profile data
         if (account?.address) {
           const updatedProfile = await getUserProfile(account.address);
@@ -203,7 +211,7 @@ const Profile = () => {
       <header className="border-b border-border bg-card">
         <div className="container mx-auto px-4 py-4">
           <Button
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/chatroom")}
             variant="ghost"
             className="gap-2 text-primary"
           >

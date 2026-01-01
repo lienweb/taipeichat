@@ -1,5 +1,3 @@
-import { SuiClient } from "@mysten/sui/client";
+import { getFullnodeUrl, SuiClient } from "@mysten/sui/client";
 
-export const suiClient = new SuiClient({
-  url: import.meta.env.VITE_SUI_NETWORK,
-});
+export const suiClient = new SuiClient({ url: getFullnodeUrl("testnet") });

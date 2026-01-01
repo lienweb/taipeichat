@@ -16,7 +16,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <Theme appearance="dark">
       <QueryClientProvider client={queryClient}>
         <SuiClientProvider networks={networkConfig} defaultNetwork="testnet">
-          <WalletProvider autoConnect>
+          <WalletProvider>
             <App />
           </WalletProvider>
         </SuiClientProvider>
